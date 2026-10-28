@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lastbridge"
+version = "0.1.0"
+description = "Last.fm discovery through an OpenSubsonic-compatible music server"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "httpx>=0.28,<1",
+    "pydantic>=2.12,<3",
+    "pydantic-settings>=2.10,<3",
+    "uvicorn>=0.35,<1",
+]
+
+[project.scripts]
+lastbridge = "lastbridge.__main__:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4,<10",
+    "ruff>=0.12,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lastbridge"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py314"
+line-length = 79
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
