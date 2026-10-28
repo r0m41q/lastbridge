@@ -15,8 +15,8 @@ from lastbridge.providers.youtube import YouTubeProvider, match_recording
 
 SUITE = (
     Recording("Daft Punk", "Instant Crush", "Random Access Memories", 337),
-    Recording("Massive Attack", "Teardrop", "Mezzanine", 330),
-    Recording("Björk", "Jóga", "Homogenic", 305),
+    Recording("Joji", "PIXELATED KISSES", "Piss In The Wind", 111),
+    Recording("OTOY", "Судоми", "Судоми", 147),
 )
 
 HINTS = {

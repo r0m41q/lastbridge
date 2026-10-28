@@ -69,8 +69,8 @@ Custom recording and diagnostic examples:
 
 ```sh
 venv/bin/python -m lastbridge.probe --live \
-  --artist 'Massive Attack' --title Teardrop --album Mezzanine --duration 330
-venv/bin/python -m lastbridge.probe --live --source-id 3h-JYx76QNM
+  --artist OTOY --title Судоми --album Судоми --duration 147
+venv/bin/python -m lastbridge.probe --live --source-id d8CbKd69KT8
 ```
 
 Search matching requires catalog audio and matching artist/title, plus album and

@@ -144,7 +144,13 @@ def test_worker_deadline_kills_child_processes(
     proc_stat = Path(f"/proc/{child_pid}/stat")
     # A killed orphan can remain as a zombie until the host reaps it.
     deadline = time.monotonic() + 2
-    while proc_stat.exists() and proc_stat.read_text().split()[2] != "Z":
+    while True:
+        try:
+            state = proc_stat.read_text().split()[2]
+        except FileNotFoundError:
+            break  # Already reaped, possibly between polling operations.
+        if state == "Z":
+            break
         assert time.monotonic() < deadline
         time.sleep(0.01)
 
