@@ -3,10 +3,10 @@
 Last.fm discovery and a private saved library through existing OpenSubsonic music
 clients. Python service, with YouTube Music as the planned first music provider.
 
-**Current scope: service foundation and a developer-only YouTube probe.** Only
-health routes are available in the server. Account linking, OpenSubsonic routes,
-audio caching, and client playback are not implemented yet. No API keys or music
-accounts are required for this step.
+**Current scope: accounts, Last.fm linking, protocol authentication, health
+routes, and a developer-only YouTube probe.** The browser account pages work;
+the protocol currently implements authenticated `ping` only. Catalog browsing,
+audio caching, recommendations, and client playback are not implemented yet.
 
 ## Local development
 
@@ -37,6 +37,95 @@ Neither health endpoint calls a music provider or Last.fm. Readiness means local
 startup completed; it does not claim that music playback is available or perform
 a continuous disk/third-party availability check.
 
+## Accounts and Last.fm linking
+
+Create the first administrator from a trusted local terminal. Passwords use
+hidden prompts and must contain 12–256 characters. Usernames use lowercase ASCII
+letters, digits, dots, hyphens, and underscores (maximum 64 characters).
+
+```sh
+venv/bin/python -m lastbridge.manage bootstrap-admin admin
+```
+
+Start the service, open its configured public URL, and sign in. The administrator
+can create ordinary users through the account page; there is no public signup.
+Bootstrap refuses to run again once any account exists. Administrator recovery:
+
+```sh
+venv/bin/python -m lastbridge.manage reset-password admin
+```
+
+This trusted local operation revokes the account's browser sessions, pending
+links, and client credential, while preserving its Last.fm link. Use the same
+data directory as the running service. Browser sessions otherwise expire after
+12 hours; signing in replaces the current browser session, and logout revokes it.
+Login attempts are limited per username and connecting IP over a one-minute
+window. Password hashing runs outside the event loop, with two concurrent
+operations at most. Forwarded client-IP headers are not trusted.
+
+Configure your own [Last.fm application](https://www.last.fm/api/account/create)
+locally. Use `<public URL>/lastfm/callback` as its callback URL. Put the following
+JSON structure in an ignored local file such as `data/lastfm.json`, replacing the
+placeholders through your editor, and restrict file permissions to its owner:
+
+```json
+{"api_key": "YOUR_32_CHARACTER_API_KEY", "api_secret": "YOUR_32_CHARACTER_SECRET"}
+```
+
+Set `LASTBRIDGE_LASTFM_CREDENTIALS_FILE=./data/lastfm.json` locally and
+`LASTBRIDGE_PUBLIC_URL` to the exact browser origin, such as
+`https://music.example.org`. The public URL has no path prefix, query or fragment;
+use that origin consistently for login and linking. Restart after configuration
+changes. Last.fm credentials are optional for startup; without them, account
+creation/sign-in works and the page explains that linking needs configuration.
+A configured unreadable or malformed credential file prevents startup.
+
+Each user signs in through the browser and presses **Link Last.fm**, authorizes
+at Last.fm, then returns to the same browser session. The callback uses the
+configured public origin, not incoming Host/proxy headers. Local link state is
+bound to the session, expires after ten minutes, and is consumed atomically
+before exchange. Callback tokens cannot be reused with another flow. Failed
+exchange requires a fresh link attempt and preserves any existing working link.
+Authorization survives application restarts. Revoked sessions have a persistent
+relink state; future authenticated Last.fm operations must mark that state on
+provider error 9. No background revocation polling is implemented, and transient
+Last.fm failures do not invalidate an existing link.
+
+After linking, generate a **client password** on the account page and copy it
+before leaving: it is shown once. Use the Lastbridge username and this value in
+music apps. It is separate from the browser password; replacing it revokes the
+previous value in every app. It also works as an OpenSubsonic `apiKey` without a
+username. Legacy plain/`enc:` password and `md5(client_password + salt)` token
+authentication work with this same generated value. The browser password cannot
+authenticate protocol calls. Extension discovery and actual client onboarding
+come in the next iteration; no extension capabilities are advertised yet.
+
+`/rest/ping` and `/rest/ping.view` support GET and URL-encoded form POST, XML
+(default) and JSON (`f=json`). Supply `v` and `c`. Errors use protocol responses:
+40/44 for bad credentials, 43 for conflicting mechanisms, 50 for missing/revoked
+Last.fm linking, and 0 for unimplemented endpoints. Normal music access requires
+a linked account; administration remains accessible before linking.
+
+SQLite schema version 1 is created transactionally on first startup. Newer schema
+versions are refused. Browser passwords use salted scrypt; browser session tokens
+and callback state are stored as SHA-256 digests. The generated client credential
+and Last.fm session key use Fernet authenticated encryption. The database and
+`data/credentials.key` use owner-only file permissions. Back up **both** together
+with the application stopped; loss of the key makes encrypted credentials
+unrecoverable. Startup refuses to replace a missing key or accept a mismatched
+one. Encryption protects a database-only copy; anyone who can read the complete
+data volume can also read its key. The browser pages return no-store/referrer
+headers, escaped text, CSRF-protected forms, and HttpOnly session cookies; cookies
+use Secure when the configured public origin is HTTPS.
+
+The implementation follows [Last.fm web authorization](https://www.last.fm/api/webauth)
+and the [OpenSubsonic authentication contract](https://opensubsonic.netlify.app/docs/api-reference/).
+Tests use a mocked provider exchange; **real Last.fm authorization has not been
+tested with live application keys**. For review, bootstrap an administrator,
+create a second account, link each to its own Last.fm account, restart the service,
+and verify each link remains associated with the correct local account. Catalog
+and playback checks belong to later iterations.
+
 ## YouTube feasibility probe
 
 The probe runs independently of the service, with explicit network opt-in. Install
@@ -47,6 +136,13 @@ UV_PROJECT_ENVIRONMENT=venv venv/bin/uv sync --locked --group probe --inexact
 venv/bin/python -m lastbridge.probe --live --suite \
   --sample-dir data/probe/review --report data/probe/review.json
 ```
+
+The suite uses Daft Punk — Instant Crush, Joji — PIXELATED KISSES, and OTOY —
+Судоми. Samples intentionally contain only ten seconds (about 160 KB for source
+AAC near 128 kb/s). This checks acquisition and decoding; it is not a provider
+preview restriction. The user confirmed the recordings are correct but considers
+quality low. Compare AAC/Opus and actual client support in the playback iteration,
+and repeat the probe on the deployment server's connection before deployment.
 
 For samples, install the **FFmpeg and ffprobe binaries** on the host. The resolver
 also uses Node.js 22+ by default; Deno is selectable with `--js-runtime deno`.
@@ -100,6 +196,8 @@ to allow later configuration additions.
 | `LASTBRIDGE_PORT` | `5274` | Local port, or published Compose port |
 | `LASTBRIDGE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL` |
 | `LASTBRIDGE_DATA_DIR` | `./data` | Local persistent directory; Compose uses `/app/data` |
+| `LASTBRIDGE_PUBLIC_URL` | `http://127.0.0.1:5274` | Exact browser/callback origin |
+| `LASTBRIDGE_LASTFM_CREDENTIALS_FILE` | unset | JSON file with application key/secret; empty means unset |
 
 The supported `lastbridge` entry point disables access logging because Subsonic
 requests may carry passwords/tokens in query strings. It logs lifecycle events,
@@ -121,8 +219,11 @@ docker compose down
 The runtime image runs as UID 10001 with one worker and stores data in the
 `lastbridge-data` named volume. It contains the installed application and runtime
 dependencies, without pytest, Ruff, uv, or installed pip. Run development checks
-locally using `venv/`. An empty read-only credentials
-volume is reserved for future credential files; the scaffold does not consume it.
+locally using `venv/`. The read-only credentials volume can hold the Last.fm
+application credential file. A local Compose override can bind an ignored host
+file to `/app/credentials/lastfm.json:ro`; make it readable by container UID 10001
+and set `LASTBRIDGE_LASTFM_CREDENTIALS_FILE=/app/credentials/lastfm.json` in the
+Compose environment. Local host paths and container paths are different.
 The build context excludes local environments, `.env`, data, and Git metadata.
 Restart after configuration changes and rebuild after source or dependency edits.
 
@@ -135,7 +236,14 @@ and runtime stages share the same updated base for native-library compatibility.
 Publishing is loopback-only by default. Set `LASTBRIDGE_HOST=0.0.0.0` in `.env` if
 you need LAN access through your existing network setup. Container-internal
 binding remains `0.0.0.0:5274`; `LASTBRIDGE_PORT` changes only the published port.
-This is an unauthenticated foundation, not a usable music server yet.
+Account pages are available; music catalog and playback are not yet implemented.
+
+Bootstrap or recover the container's administrator with the same hidden prompts:
+
+```sh
+docker compose exec lastbridge /app/venv/bin/python -m lastbridge.manage bootstrap-admin admin
+docker compose exec lastbridge /app/venv/bin/python -m lastbridge.manage reset-password admin
+```
 
 `docker compose down` preserves named volumes. Do not add `--volumes` unless you
 intend to delete all stored data.
@@ -162,12 +270,14 @@ Trivy 0.76.0 scans on 2026-10-28, using the same vulnerability database updated 
 | --- | ---: | ---: |
 | Original Python 3.14.4 / Debian 12 development image | 7 | 75 |
 | Previous agent's two-stage image with Debian 12 updates | 2 | 59 |
-| Current Python 3.14.10 / Debian 13 runtime image | 0 | 44 |
+| Iteration 1 Python 3.14.10 / Debian 13 runtime image | 0 | 44 |
+| Iteration 3 runtime, including cryptography | 0 | 44 |
 
 The remaining 44 high findings correspond to eight distinct CVEs across Debian
 packages, with no fixed versions listed by this database. Lower-severity findings
 also remain (58 medium, 61 low, one unknown). No vulnerabilities were reported for
-the installed Python application dependencies. This is a dated scan result, not
+the installed Python application dependencies, including the iteration 3
+cryptography addition. That scan reused the same database for comparison. This is a dated scan result, not
 a guarantee of safety or a count of remotely exploitable application bugs. Other
 scanners can group findings or assign severity differently.
 
@@ -194,7 +304,9 @@ docker compose config --quiet
 ```
 
 Tests use temporary storage and do not contact providers. They cover lifecycle,
-configuration, credential-safe logging, recording/version matching, format
+configuration, account/session isolation, CSRF and callback replay protection,
+credential encryption/recovery, protocol authentication, credential-safe logging,
+recording/version matching, format
 selection, worker/child deadlines, and partial-file cleanup. A synthetic audio
 test uses loopback HTTP and the real media tools when installed; it explicitly
 skips when FFmpeg/ffprobe are absent. Live YouTube checks are never a unit-test
@@ -223,4 +335,13 @@ Iteration 1, 2026-10-28:
 
 Iteration 2, 2026-10-28: anonymous YouTube search/resolution and three real samples
 were tested from this Ubuntu host; details are in the [probe report](docs/youtube-probe.md).
-Last.fm, real client playback, and audio retention/caching remain unimplemented.
+Real client playback and audio retention/caching remain unimplemented.
+
+Iteration 3 adds SQLite accounts, browser login/admin creation, encrypted client
+and Last.fm credentials, protocol authentication, and one-time browser linking.
+Cryptography 50.0.2 is locked. All 59 local tests pass, with the same single
+Starlette deprecation warning; lint, formatting and Compose validation pass.
+The rebuilt image passed a disposable-container ASGI smoke test for bootstrap,
+browser sign-in, encrypted synthetic linking state, protocol ping, and readiness
+on Python 3.14.10 as UID 10001. This was not a live Last.fm exchange.
+Live Last.fm linking still requires local application keys and browser review.

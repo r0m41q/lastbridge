@@ -9,6 +9,7 @@ description = "Last.fm discovery through an OpenSubsonic-compatible music server
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [
+    "cryptography>=46,<52",
     "fastapi>=0.115,<1",
     "httpx>=0.28,<1",
     "pydantic>=2.12,<3",

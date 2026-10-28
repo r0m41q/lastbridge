@@ -5,7 +5,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.error import HTTPError, URLError
+from urllib.error import URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
 import pytest
@@ -52,10 +52,9 @@ def test_cli_startup_requests_and_shutdown(tmp_path: Path) -> None:
                 f"{base_url}/rest/ping.view?p=cli-password&t=cli-token",
                 headers={"Authorization": "Bearer cli-bearer"},
             )
-            with pytest.raises(HTTPError) as error:
-                opener.open(request, timeout=2)
-            assert error.value.code == 404
-            error.value.close()
+            with opener.open(request, timeout=2) as response:
+                assert response.status == 200
+                assert b'code="43"' in response.read()
         finally:
             process.terminate()
             try:

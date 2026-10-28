@@ -95,7 +95,8 @@ def test_requests_do_not_log_credentials(
             "/rest/ping.view?u=alice&p=test-password&t=test-token",
             headers={"Authorization": "Bearer test-bearer"},
         )
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert 'code="43"' in response.text
     application_messages = "\n".join(
         record.getMessage()
         for record in caplog.records

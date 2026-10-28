@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -6,8 +7,13 @@ from tempfile import TemporaryFile
 import httpx
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
+from lastbridge.accounts import Accounts
 from lastbridge.config import Settings
+from lastbridge.lastfm import Lastfm
+from lastbridge.subsonic import router as subsonic_router
+from lastbridge.web import router as web_router
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +38,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # Do not put configured paths or environment values in logs.
             raise RuntimeError(
                 "Cannot initialize writable Lastbridge storage"
+            ) from None
+
+        try:
+            app.state.accounts = await run_in_threadpool(
+                Accounts, config.data_dir
+            )
+            app.state.lastfm = Lastfm(config.lastfm_credentials_file)
+            app.state.password_limit = asyncio.Semaphore(2)
+        except Exception:
+            raise RuntimeError(
+                "Cannot initialize account storage/credentials"
             ) from None
 
         async with httpx.AsyncClient(
@@ -59,6 +76,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url=None,
     )
     app.state.ready = False
+    app.state.config = config
+
+    @app.middleware("http")
+    async def security_headers(request, call_next):
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; form-action 'self' https://www.last.fm; "
+            "frame-ancestors 'none'; "
+            "base-uri 'none'"
+        )
+        return response
+
+    app.include_router(web_router)
+    app.include_router(subsonic_router)
 
     @app.get("/health/live")
     async def live() -> dict[str, str]:

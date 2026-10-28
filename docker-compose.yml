@@ -8,9 +8,11 @@ services:
       LASTBRIDGE_PORT: 5274
       LASTBRIDGE_LOG_LEVEL: ${LASTBRIDGE_LOG_LEVEL:-INFO}
       LASTBRIDGE_DATA_DIR: /app/data
+      LASTBRIDGE_PUBLIC_URL: ${LASTBRIDGE_PUBLIC_URL:-http://127.0.0.1:5274}
+      LASTBRIDGE_LASTFM_CREDENTIALS_FILE: ${LASTBRIDGE_LASTFM_CREDENTIALS_FILE:-}
     volumes:
       - lastbridge-data:/app/data
-      # Reserved credential-file mount
+      # Place the optional Last.fm credential file here, readable by UID 10001.
       - lastbridge-credentials:/app/credentials:ro
     init: true
     healthcheck:
