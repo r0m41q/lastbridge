@@ -1,0 +1,9 @@
+SCHEMA = """CREATE TABLE mixes (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    target TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0,
+    running INTEGER NOT NULL DEFAULT 0, next_attempt REAL NOT NULL DEFAULT 0,
+    requested REAL NOT NULL DEFAULT 0, created REAL NOT NULL,
+    updated REAL NOT NULL DEFAULT 0, error TEXT,
+    profile TEXT NOT NULL DEFAULT '{}',
+    snapshot TEXT NOT NULL DEFAULT '{}'
+)"""

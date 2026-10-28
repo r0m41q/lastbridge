@@ -464,7 +464,7 @@ def test_migration_from_v1_preserves_accounts(tmp_path):
     migrated = Accounts(tmp_path)
     assert migrated.user("admin")["admin"] == 1
     with migrated.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
         assert (
             connection.execute("SELECT count(*) FROM catalog").fetchone()[0]
             == 0
@@ -632,7 +632,8 @@ def test_cached_album_and_song_content_type_without_metadata_refetch(
         ).content
     )
     child = root.find(
-        "{http://subsonic.org/restapi}directory/{http://subsonic.org/restapi}child"
+        "{http://subsonic.org/restapi}directory/"
+        "{http://subsonic.org/restapi}child"
     )
     assert child.attrib["contentType"] == "application/octet-stream"
 

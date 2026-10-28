@@ -46,7 +46,11 @@ def page(tracks, current=1, total=1):
 
 
 @pytest.fixture
-def sync_service(tmp_path):
+def sync_service(tmp_path, monkeypatch):
+    async def taste_rows(self, client, method, **parameters):
+        return []
+
+    monkeypatch.setattr(Lastfm, "taste_rows", taste_rows)
     app = create_app(
         Settings(
             _env_file=None,
@@ -57,6 +61,7 @@ def sync_service(tmp_path):
         )
     )
     with TestClient(app) as client:
+        client.portal.call(app.state.mixes.close)
         client.portal.call(app.state.sync.close)
         client.portal.call(app.state.library.close)
         keys = {}
@@ -561,7 +566,7 @@ def test_v3_migration_preserves_favorites_credentials_and_audio_intent(
     )
     assert Catalog(migrated).read(song["id"])["document"] == song
     with migrated.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
         assert (
             connection.execute("SELECT count(*) FROM favorites").fetchone()[0]
             == 1
@@ -786,6 +791,11 @@ def test_background_import_bootstraps_existing_link_and_resumes_disk_cursor(
 
     monkeypatch.setattr(Lastfm, "loved", loved)
     monkeypatch.setattr(Catalog, "match_loved", unavailable)
+
+    async def empty_taste(self, client, method, **parameters):
+        return []
+
+    monkeypatch.setattr(Lastfm, "taste_rows", empty_taste)
     settings = Settings(
         _env_file=None,
         data_dir=directory,

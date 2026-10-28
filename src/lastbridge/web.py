@@ -177,6 +177,7 @@ async def account(request: Request):
     else:
         body += "<p>Link Last.fm before connecting a music client.</p>"
     if user["link_status"] in ("linked", "relink"):
+        body += '<p><a href="/mixes">Personal mixes and refresh status</a></p>'
         body += (
             '<p><a href="/lastfm/sync">Last.fm import '
             "and scrobble status</a></p>"
@@ -381,6 +382,76 @@ async def logout(request: Request):
     return response
 
 
+@router.get("/mixes")
+async def mixes_page(request: Request):
+    user = current_user(request)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+    mixes = request.app.state.mixes
+    status = mixes.status(user["id"])
+    body = (
+        '<p><a href="/">Your account</a></p>'
+        "<p>Open Playlists in your music app. These lists are managed by "
+        "the server. Mix generation stores metadata; it does not save audio. "
+        "Heart a song to keep it downloaded.</p>"
+        "<p>Comfort uses favorites and six-month top tracks. Discover uses "
+        "similar tracks outside your known listening sample; new profiles "
+        "get chart suggestions. Listen Again uses recent completed listening. "
+        "Loved Tracks shows matched Last.fm loves still saved locally.</p>"
+        "<p>Generated mixes have up to 30 tracks, refresh daily, and keep "
+        "their previous snapshot during outages. Initial generation may take "
+        "up to three minutes. Unavailable or ambiguous matches are omitted. "
+        "Loved Tracks follows the import and local hearts immediately. "
+        "Reload this page for progress.</p>"
+    )
+    if status:
+        from lastbridge.mixes import date
+
+        body += (
+            "<p>Status: "
+            + (
+                "refreshing"
+                if status["running"]
+                else "waiting for next refresh"
+            )
+            + ".</p>"
+        )
+        if status["updated"]:
+            body += (
+                "<p>Last successful refresh: "
+                f"{escape(date(status['updated']))}.</p>"
+            )
+        if status["error"]:
+            body += f"<p>{escape(status['error'])}</p>"
+        body += "<ul>"
+        for item in mixes.playlists(user):
+            body += (
+                f"<li>{escape(item['name'])}: {item['songCount']} tracks</li>"
+            )
+        body += "</ul>"
+        body += form("/mixes/refresh", user["csrf"], "Refresh my mixes")
+        body += "<p>Manual refresh is limited to once every five minutes.</p>"
+    else:
+        body += "<p>Link Last.fm to start generating your mixes.</p>"
+    return page("Personal mixes", body)
+
+
+@router.post("/mixes/refresh")
+async def refresh_mixes(request: Request):
+    user, _ = await protected_form(request)
+    if user["link_status"] != "linked":
+        raise HTTPException(403, "Link Last.fm first")
+    try:
+        request.app.state.mixes.request(user["id"])
+    except ValueError as error:
+        return page(
+            "Refresh not queued",
+            f'<p>{escape(str(error))}</p><a href="/mixes">Back to mixes</a>',
+            409,
+        )
+    return RedirectResponse("/mixes", status_code=303)
+
+
 @router.post("/admin/users")
 async def create_user(request: Request):
     user, values = await protected_form(request)
@@ -460,5 +531,6 @@ async def callback(request: Request):
     ):
         raise HTTPException(400, "Session expired; start a new Last.fm link")
     request.app.state.sync.linked(user["id"])
+    request.app.state.mixes.linked(user["id"])
     # Remove the provider token and state from the address bar immediately.
     return RedirectResponse("/", status_code=303)

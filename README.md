@@ -5,10 +5,10 @@ clients. Python service, with YouTube Music as the first music provider.
 
 **Current scope: accounts, Last.fm linking, catalog browsing, audio playback,
 seeking/downloads, private favorites, shared permanent audio retention,
-Last.fm scrobbling, and resumable loved-track imports.**
-Recommendations arrive in later iterations. The user confirmed
+Last.fm scrobbling, resumable loved-track imports, and personal mix playlists.**
+Radio continuation arrives in a later iteration. The user confirmed
 Feishin browsing, playback, seeking, and downloading; Amperfy testing is deferred.
-Favorites and Last.fm sync have manual review steps below.
+Favorites, Last.fm sync, and personal mixes have manual review steps below.
 
 ## Local development
 
@@ -123,8 +123,8 @@ Last.fm linking, and 0 for unimplemented endpoints. Music clients require an
 initial link; revoked Last.fm authorization pauses delivery while preserving
 local playback. Administration remains accessible before linking.
 
-SQLite schema version 4 is created transactionally on first startup; versions 1,
-2 and 3 are upgraded automatically without changing accounts, credentials or catalog
+SQLite schema version 5 is created transactionally on first startup; versions 1,
+2, 3 and 4 are upgraded automatically without changing accounts, credentials or catalog
 identities. Back up the data volume before upgrading. Newer schema
 versions are refused. Browser passwords use salted scrypt; browser session tokens
 and callback state are stored as SHA-256 digests. The generated client credential
@@ -141,7 +141,7 @@ use Secure when the configured public origin is HTTPS.
 To preserve downloaded favorites as well as membership, include `data/saved/`
 with its audio files and manifests in that stopped-volume backup. Restoring only
 SQLite and the credential key preserves save intent but requires reacquisition of
-missing audio from the provider. Older application versions cannot open schema 4;
+missing audio from the provider. Older application versions cannot open schema 5;
 restore the matching pre-upgrade backup for a rollback.
 
 The implementation follows [Last.fm web authorization](https://www.last.fm/api/webauth)
@@ -363,7 +363,7 @@ the page shows up to 200 unmatched/removed records and the latest 100 reports.
 The database retains all deduplication records and import/removal intent; no
 history pruning or total metadata quota is implemented yet.
 
-For review, back up the stopped data volume before upgrading to schema 4, then
+For review, back up the stopped data volume before upgrading to schema 5, then
 rebuild with `docker compose up -d --build`. Upgrading automatically starts imports
 for configured linked accounts and may grow permanent storage. Check the sync
 page and pause imports there if needed.
@@ -382,6 +382,96 @@ page and pause imports there if needed.
 Automated checks use mocked Last.fm responses and disposable storage. No real
 Last.fm scrobbles or loved imports have been sent by the agent; client/device
 acceptance remains manual. No new credentials or configuration variables are needed.
+
+## Personal mix playlists
+
+After linking Last.fm, open **Playlists** in your music app. Lastbridge exposes
+four private, server-managed, read-only lists through
+[getPlaylists](https://opensubsonic.netlify.app/docs/endpoints/getplaylists/) and
+[getPlaylist](https://opensubsonic.netlify.app/docs/endpoints/getplaylist/).
+Playlist IDs stay stable across refreshes and restarts. Each user's IDs and
+contents are separate; even administrators cannot read another user's mixes
+through these endpoints. Playlist create/edit/delete remains deferred.
+
+| Playlist | Selection |
+| --- | --- |
+| Comfort | Shuffled saved songs and six-month Last.fm top tracks; familiar listening. |
+| Discover | Similar-track candidates from up to three daily rotating familiar seeds, excluding known tracks and local removals. |
+| Listen Again | Up to 50 recent local completed-play reports, followed by up to 50 Last.fm recent tracks; duplicates removed. |
+| Loved Tracks | All confidently matched imported Last.fm loves that remain individually hearted locally. |
+
+The first three lists contain **up to 30 resolved tracks each**. Loved Tracks
+follows the existing import and local hearts immediately, without a 30-track
+limit. A local heart without an imported Last.fm love belongs to Comfort and the
+saved library, rather than Loved Tracks. Local removals are filtered from all
+mixes immediately. Hearting again clears the removal as usual.
+
+Taste data comes from the first 50
+[six-month top tracks](https://www.last.fm/api/show/user.getTopTracks),
+[top artists](https://www.last.fm/api/show/user.getTopArtists), and
+[recent tracks](https://www.last.fm/api/show/user.getRecentTracks), plus the user's
+saved songs, imported loves and local playback reports. Now-playing rows do not
+count as listening. Listen Again preserves newest-first order within each source,
+with local reports first; it does not claim a single merged historical timeline.
+The profile and candidate decisions stay in the user's own database row. Public
+song/album metadata and played audio retain their existing shared storage model.
+
+Discover uses [track.getSimilar](https://www.last.fm/api/show/track.getSimilar),
+interleaving results from its seeds. If a profile has artists but no seed tracks,
+their top tracks supply candidates. A completely empty profile gets
+[chart suggestions](https://www.last.fm/api/show/chart.getTopTracks) in Discover;
+Comfort and Listen Again wait for actual favorites/listening. Discover excludes
+all locally known saved, loved and reported recordings, plus the sampled remote
+top/recent tracks. Newly hearted or locally reported tracks disappear from its
+current view immediately. This is discovery relative to that sample, not a
+guarantee that a track has never appeared anywhere in the user's Last.fm history.
+
+Candidate matching reuses the strict import matcher: exact normalized artist and
+title among official available album recordings, preserving live/remix qualifiers.
+Ambiguous, unavailable and duplicate recordings are omitted. No unrelated cover
+or different version is substituted. Cached metadata is not proof of ongoing
+upstream availability; a track can become unavailable before actual playback.
+
+A single background worker refreshes daily, independently of the import and
+scrobble workers. Linking and client playlist requests never wait for generation.
+Each refresh allows at most 40 new recording lookups and a 180-second total
+deadline, with bounded provider responses and a 250 ms gap after successful reads
+and lookups. Previously resolved entries can be reused; short lists are normal
+when matching is ambiguous or the budget is exhausted. Refreshes store metadata
+only and do **not** queue audio or permanently pin recommendations. Playback
+uses the usual temporary cache; hearts still queue permanent copies.
+
+The three generated snapshots and taste profile publish together in one
+transaction. Last.fm/provider outages, deadlines, or an entirely unresolvable
+replacement for a previously populated list retain the previous snapshots and
+schedule a retry in five minutes. Interrupted refreshes keep the old snapshots
+and become eligible again after one minute on restart. Changing the linked
+Last.fm identity clears the old profile/snapshots, and in-flight old results
+cannot publish; saved local favorites remain as before. Revoked authorization
+pauses refreshes while existing playlists and cached playback remain available.
+
+Open `/mixes` from the account page to see counts, last successful refresh and
+errors, or request a refresh. Manual requests require browser session/CSRF and
+have a five-minute cooldown. Refreshing does not rewrite a queue already loaded
+by a client. This iteration does not provide automatic endless radio or custom
+client home-screen sections.
+
+Review after backing up the stopped whole data volume and rebuilding with
+`docker compose up -d --build`:
+
+1. Open `/mixes`, allow up to three minutes for initial generation, then reload.
+   Open Playlists in Feishin and check all four lists and their track counts.
+2. Play and seek a Discover entry, then heart it. It should appear in the saved
+   library/download jobs and disappear from Discover after reloading its list.
+3. Refresh mixes in the browser. Confirm playlist IDs stay stable and a second
+   account has separate contents. Local unlikes must stay removed.
+4. Restart and verify snapshots remain. An empty Last.fm profile should have
+   chart suggestions in Discover when confident matches are available.
+
+Automated tests use synthetic Last.fm data and mocked audio acquisition. Real
+recommendation coverage, latency and Feishin presentation remain user acceptance
+checks; Amperfy/device testing is still explicitly deferred. No live credentials
+or accounts were used by the agent for this iteration.
 
 Host acquisition on 2026-10-28 verified all six complete renditions, with no
 10-second clipping. Initial download times were 1.9–3.3 seconds, before adding
@@ -830,3 +920,19 @@ All Last.fm responses were mocked; no live credentials, real scrobbles or real
 Last.fm imports were used. Feishin server-scrobbling and live import acceptance
 remain manual. Dependencies, audio policy and container media tools are unchanged;
 no new vulnerability scan is claimed.
+
+
+Iteration 8, 2026-10-29: private Comfort, Discover, Listen Again and Loved Tracks
+playlists, bounded daily generation, per-user taste profiles, atomic snapshots,
+outage/restart fallback and browser refresh controls. All 233 tests pass in
+97.54s, including the regression for unhearting then rehearting an imported love.
+Ruff lint/format (36 files), direct Python line-length scan (all src/tests lines
+at most 79 characters), diff and Compose checks pass. The affected audio-worker
+and catalog tests pass again after wrapping two pre-existing long strings
+(51 tests, 14.43s). The existing TestClient/HTTPX deprecation warning remains.
+A disposable installed Docker image passed with networking disabled as UID10001:
+schema 5, two-user playlist isolation, strict matching against mocked metadata,
+UTF-8/XML responses, no automatic audio pins and interrupted-refresh recovery.
+Real recommendation coverage, latency and client presentation remain manual review
+items. No live credentials, existing data volumes or actual Last.fm requests were
+used; no new security scan was performed.

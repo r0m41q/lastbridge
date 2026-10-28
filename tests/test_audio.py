@@ -5,13 +5,15 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import test_catalog
 from test_catalog import body, get, search
-from test_catalog import catalog_service as catalog_service
 
 from lastbridge.audio import AudioCache, AudioProvider
 from lastbridge.catalog import CatalogError
 from lastbridge.providers.audio_worker import choose_format, download
 from lastbridge.providers.base import ProviderError
+
+catalog_service = test_catalog.catalog_service
 
 SOURCE = "khnokW3Mw24"
 OTHER = "HYXGY67fATk"
@@ -360,7 +362,10 @@ def test_audio_worker_is_bounded_and_errors_are_redacted(
         script = {
             "timeout": "import sys,time; sys.stdin.read(); time.sleep(60)",
             "oversized": "import sys; sys.stdin.read(); print('x'*70000)",
-            "unsafe_error": 'import sys; sys.stdin.read(); print(\'{"error":"https://secret.invalid/credential"}\')',
+            "unsafe_error": (
+                "import sys; sys.stdin.read(); "
+                'print(\'{"error":"https://secret.invalid/credential"}\')'
+            ),
         }[behavior]
 
         async def launch(*args, **kwargs):

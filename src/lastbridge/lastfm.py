@@ -178,6 +178,59 @@ class Lastfm:
                 "pending", "Invalid Last.fm loved-track page; retry scheduled."
             ) from None
 
+    async def taste_rows(self, client, method, **parameters):
+        """Bounded first-page taste data; no session key is needed."""
+        roots = {
+            "user.getTopTracks": ("toptracks", "track"),
+            "user.getRecentTracks": ("recenttracks", "track"),
+            "user.getTopArtists": ("topartists", "artist"),
+            "track.getSimilar": ("similartracks", "track"),
+            "artist.getTopTracks": ("toptracks", "track"),
+            "chart.getTopTracks": ("tracks", "track"),
+        }
+        root, kind = roots[method]
+        values = await self.request(
+            client,
+            parameters
+            | {
+                "method": method,
+                "api_key": self.api_key,
+                "format": "json",
+                "limit": "50",
+                "page": "1",
+            },
+        )
+        try:
+            rows = values[root].get(kind, [])
+            if isinstance(rows, dict):
+                rows = [rows]
+            # Recent tracks may include a now-playing row in addition to limit.
+            if not isinstance(rows, list) or len(rows) > 51:
+                raise ValueError
+            result = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise ValueError
+                if row.get("@attr", {}).get("nowplaying") == "true":
+                    continue
+                title = row["name"]
+                if kind == "artist":
+                    artist = title
+                else:
+                    credit = row["artist"]
+                    artist = credit.get("name", credit.get("#text"))
+                if not all(
+                    isinstance(v, str) and 0 < len(v.strip()) <= 1024
+                    for v in (artist, title)
+                ):
+                    raise ValueError
+                result.append((artist.strip(), title.strip()))
+            return result[:50]
+        except KeyError, TypeError, ValueError, AttributeError:
+            raise LastfmRequestError(
+                "pending", "Invalid Last.fm taste data; retry scheduled."
+            ) from None
+
     async def exchange(
         self, client: httpx.AsyncClient, token: str
     ) -> tuple[str, str]:

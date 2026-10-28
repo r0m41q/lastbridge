@@ -270,10 +270,17 @@ async def dispatch(request, method, values, user):
     if method == "getPlaylists":
         if values.get("username", user["username"]) != user["username"]:
             raise CatalogError(50, "Access denied")
-        return {"playlists": {"playlist": []}}
+        return {
+            "playlists": {"playlist": request.app.state.mixes.playlists(user)}
+        }
     if method == "getPlaylist":
-        required(values, "id")
-        raise CatalogError(70, "Playlist not found")
+        return {
+            "playlist": request.app.state.mixes.playlists(
+                user, required(values, "id")
+            )
+        }
+    if method in ("createPlaylist", "updatePlaylist", "deletePlaylist"):
+        raise CatalogError(50, "Generated playlists are read only")
     if method in ("search2", "search3"):
         if "query" not in values:
             raise CatalogError(10, "Required parameter: query")
