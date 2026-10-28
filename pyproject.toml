@@ -20,6 +20,10 @@ dependencies = [
 lastbridge = "lastbridge.__main__:main"
 
 [dependency-groups]
+probe = [
+    "ytmusicapi>=1.12.3,<2",
+    "yt-dlp[default]>=2026.10.1",
+]
 dev = [
     "pytest>=8.4,<10",
     "ruff>=0.12,<1",

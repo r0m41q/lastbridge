@@ -3,9 +3,10 @@
 Last.fm discovery and a private saved library through existing OpenSubsonic music
 clients. Python service, with YouTube Music as the planned first music provider.
 
-**Current scope: service foundation only.** Account linking, OpenSubsonic routes,
-music providers, audio caching, and playback are not implemented yet. Only health
-routes are available. No API keys or music accounts are required for this step.
+**Current scope: service foundation and a developer-only YouTube probe.** Only
+health routes are available in the server. Account linking, OpenSubsonic routes,
+audio caching, and client playback are not implemented yet. No API keys or music
+accounts are required for this step.
 
 ## Local development
 
@@ -35,6 +36,57 @@ Use Ctrl-C to stop. Lifecycle startup creates writable `data/cache/` and
 Neither health endpoint calls a music provider or Last.fm. Readiness means local
 startup completed; it does not claim that music playback is available or perform
 a continuous disk/third-party availability check.
+
+## YouTube feasibility probe
+
+The probe runs independently of the service, with explicit network opt-in. Install
+its optional dependency group into the same local environment:
+
+```sh
+UV_PROJECT_ENVIRONMENT=venv venv/bin/uv sync --locked --group probe --inexact
+venv/bin/python -m lastbridge.probe --live --suite \
+  --sample-dir data/probe/review --report data/probe/review.json
+```
+
+For samples, install the **FFmpeg and ffprobe binaries** on the host. The resolver
+also uses Node.js 22+ by default; Deno is selectable with `--js-runtime deno`.
+These binaries and the optional probe packages are not in the service's Docker
+image. The service's runtime dependencies are unchanged.
+
+The default player client is `visionos`, which delivered all three test samples
+on this machine. `--player-client default` tests yt-dlp's own client selection;
+that resolved metadata but the CDN refused all three sample requests here.
+Neither setting uses account credentials. This dated result is not a general
+availability guarantee.
+
+Without `--sample-dir`, the probe only inspects formats. It prints JSON and exits
+nonzero for a failed case; search and inspect/sample stages each have a hard
+45-second deadline (`--timeout`, maximum 120 seconds). Killing a timed-out worker
+also kills its media subprocesses and removes partial samples. Completed samples
+and reports are never overwritten; choose new paths for another run.
+
+Custom recording and diagnostic examples:
+
+```sh
+venv/bin/python -m lastbridge.probe --live \
+  --artist 'Massive Attack' --title Teardrop --album Mezzanine --duration 330
+venv/bin/python -m lastbridge.probe --live --source-id 3h-JYx76QNM
+```
+
+Search matching requires catalog audio and matching artist/title, plus album and
+duration when supplied. Trailing featured-performer credits are normalized;
+live/remix/version qualifiers remain significant. Ambiguous results fail rather
+than silently selecting a recording. This is a conservative first matcher, not
+universal catalog coverage; explicit source IDs bypass matching for diagnostics.
+
+Samples preserve source AAC/M4A (preferred) or Opus/WebM with stream copying,
+without upscaling or transcoding. FFprobe measures the saved sample and FFmpeg
+decodes it to check integrity. Reports distinguish resolution from verified
+sample decoding and omit signed URLs, headers, and raw upstream errors. Local
+reports/audio under `data/` are ignored; keep `uv.lock` committed so dependency
+versions remain reproducible.
+
+See the [probe evidence and remaining review checks](docs/youtube-probe.md).
 
 ## Configuration
 
@@ -142,9 +194,11 @@ docker compose config --quiet
 ```
 
 Tests use temporary storage and do not contact providers. They cover lifecycle,
-readiness, storage initialization failure, configuration precedence/validation,
-and avoiding credential disclosure in foundation logs. Later iterations will add
-feature-specific tests and real client checks.
+configuration, credential-safe logging, recording/version matching, format
+selection, worker/child deadlines, and partial-file cleanup. A synthetic audio
+test uses loopback HTTP and the real media tools when installed; it explicitly
+skips when FFmpeg/ffprobe are absent. Live YouTube checks are never a unit-test
+requirement.
 
 ## Validation record
 
@@ -167,6 +221,6 @@ Iteration 1, 2026-10-28:
   stalled. The same suite runs normally outside that sandbox and in Docker;
   tests are not allowed to silently skip this check.
 
-No live music provider, Last.fm account, or real music client has been tested in
-this iteration. Storage directories are prepared, but audio retention/caching
-behavior belongs to later iterations.
+Iteration 2, 2026-10-28: anonymous YouTube search/resolution and three real samples
+were tested from this Ubuntu host; details are in the [probe report](docs/youtube-probe.md).
+Last.fm, real client playback, and audio retention/caching remain unimplemented.

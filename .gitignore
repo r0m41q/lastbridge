@@ -222,6 +222,7 @@ __marimo__/
 # AI-related
 AGENTS.md
 PLAN.md
+docs/
 
 # Local application storage and credential files
 /data/
