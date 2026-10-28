@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from lastbridge.accounts import SESSION_SECONDS
-from lastbridge.lastfm import HEX_KEY, LastfmError
+from lastbridge.lastfm import AUTH_VALUE, LastfmError
 
 router = APIRouter()
 COOKIE = "lastbridge_session"
@@ -269,7 +269,7 @@ async def callback(request: Request):
     values = await parameters(request)
     state, token = values.get("state", ""), values.get("token", "")
     if (
-        not HEX_KEY.fullmatch(token)
+        not AUTH_VALUE.fullmatch(token)
         or len(state) != 43
         or not request.app.state.lastfm.configured
         or not request.app.state.accounts.claim_link(

@@ -104,3 +104,26 @@ def test_requests_do_not_log_credentials(
     )
     for secret in ("test-password", "test-token", "test-bearer"):
         assert secret not in application_messages
+
+
+@pytest.mark.parametrize("api_key", ["", "private-invalid-key"])
+def test_invalid_lastfm_environment_does_not_log_credentials(
+    tmp_path, api_key
+):
+    secret = "abcdef0123456789" * 2
+    result = subprocess.run(
+        [sys.executable, "-m", "lastbridge"],
+        env=os.environ
+        | {
+            "LASTBRIDGE_LASTFM_API_KEY": api_key,
+            "LASTBRIDGE_LASTFM_API_SECRET": secret,
+        },
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 2
+    assert "Invalid configuration" in result.stderr
+    assert secret not in result.stderr + result.stdout
+    assert "private-invalid-key" not in result.stderr + result.stdout

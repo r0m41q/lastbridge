@@ -46,7 +46,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 Accounts, config.data_dir
             )
             app.state.catalog = Catalog(app.state.accounts)
-            app.state.lastfm = Lastfm(config.lastfm_credentials_file)
+            app.state.lastfm = Lastfm(
+                config.lastfm_api_key.get_secret_value(),
+                config.lastfm_api_secret.get_secret_value(),
+            )
             app.state.password_limit = asyncio.Semaphore(2)
         except Exception:
             raise RuntimeError(
@@ -84,7 +87,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def security_headers(request, call_next):
         response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
-        response.headers["Referrer-Policy"] = "no-referrer"
+        # no-referrer makes browser navigation POSTs send Origin: null,
+        # conflicting with the strict origin check on browser forms.
+        # Keep same-origin submissions working without external referrer leaks.
+        response.headers["Referrer-Policy"] = "same-origin"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Content-Security-Policy"] = (
             "default-src 'none'; form-action 'self' https://www.last.fm; "

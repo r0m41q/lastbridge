@@ -576,3 +576,55 @@ def test_artwork_http_response_and_xml_profile(catalog_service):
     user = root.find("{http://subsonic.org/restapi}user")
     assert user.attrib["scrobblingEnabled"] == "false"
     assert user.find("{http://subsonic.org/restapi}folder").text == "1"
+
+
+def test_unresolved_tracks_have_generic_content_type_for_feishin(
+    catalog_service,
+):
+    result = search(catalog_service)
+    song = result["song"][0]
+    assert song["contentType"] == "application/octet-stream"
+    album = body(get(catalog_service, "getAlbum", id=song["albumId"]))["album"]
+    assert all(
+        s["contentType"] == "application/octet-stream" for s in album["song"]
+    )
+    assert all("bitRate" not in s and "suffix" not in s for s in album["song"])
+
+
+def test_cached_album_and_song_content_type_without_metadata_refetch(
+    catalog_service,
+):
+    _, app, provider, _ = catalog_service
+    result = search(catalog_service)
+    song = result["song"][0]
+    album = body(get(catalog_service, "getAlbum", id=song["albumId"]))["album"]
+    # Reproduce existing persisted metadata from before the compatibility fix.
+    with app.state.accounts.transaction() as connection:
+        rows = connection.execute("SELECT id,document FROM catalog").fetchall()
+        for row in rows:
+            document = json.loads(row["document"])
+            document.pop("contentType", None)
+            for entry in document.get("song", []):
+                entry.pop("contentType", None)
+            connection.execute(
+                "UPDATE catalog SET document=? WHERE id=?",
+                (json.dumps(document), row["id"]),
+            )
+    provider.fail = True
+    fetched = body(get(catalog_service, "getAlbum", id=album["id"]))["album"]
+    assert all(
+        s["contentType"] == "application/octet-stream" for s in fetched["song"]
+    )
+    fetched_song = body(get(catalog_service, "getSong", id=song["id"]))["song"]
+    assert fetched_song["contentType"] == "application/octet-stream"
+    assert fetched_song["id"] == song["id"]
+    # Folder-style browsing must supply the same contract, including XML.
+    root = fromstring(
+        get(
+            catalog_service, "getMusicDirectory", id=album["id"], f="xml"
+        ).content
+    )
+    child = root.find(
+        "{http://subsonic.org/restapi}directory/{http://subsonic.org/restapi}child"
+    )
+    assert child.attrib["contentType"] == "application/octet-stream"

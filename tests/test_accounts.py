@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import parse_qs, urlsplit
@@ -62,10 +61,6 @@ def finish_link(client, state, token=TOKEN):
 
 @pytest.fixture
 def service(tmp_path, monkeypatch):
-    credentials = tmp_path / "lastfm.json"
-    credentials.write_text(
-        json.dumps({"api_key": "1" * 32, "api_secret": "2" * 32})
-    )
     store = Accounts(tmp_path / "data")
     store.create_user("admin", PASSWORD, bootstrap=True)
     store.create_user("alice", PASSWORD)
@@ -81,7 +76,8 @@ def service(tmp_path, monkeypatch):
             _env_file=None,
             data_dir=tmp_path / "data",
             public_url="http://testserver",
-            lastfm_credentials_file=credentials,
+            lastfm_api_key="1" * 32,
+            lastfm_api_secret="2" * 32,
         )
     )
     with TestClient(app) as client:
@@ -362,9 +358,7 @@ def test_login_rate_limit_expires_and_is_shared_across_requests(tmp_path):
 
 
 def test_lastfm_signature_and_only_valid_session_is_accepted(tmp_path):
-    path = tmp_path / "credentials.json"
-    path.write_text(json.dumps({"api_key": "1" * 32, "api_secret": "2" * 32}))
-    adapter = Lastfm(path)
+    adapter = Lastfm("1" * 32, "2" * 32)
     observed = []
 
     def respond(request):
@@ -394,11 +388,9 @@ def test_lastfm_signature_and_only_valid_session_is_accepted(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "result", [{"error": 9}, {}, {"session": {"name": "name", "key": "wrong"}}]
+    "result", [{"error": 9}, {}, {"session": {"name": "name", "key": ""}}]
 )
 def test_lastfm_provider_errors_are_safe(tmp_path, result):
-    path = tmp_path / "credentials.json"
-    path.write_text(json.dumps({"api_key": "1" * 32, "api_secret": "2" * 32}))
 
     async def run():
         async with httpx.AsyncClient(
@@ -406,7 +398,7 @@ def test_lastfm_provider_errors_are_safe(tmp_path, result):
                 lambda _: httpx.Response(200, json=result)
             )
         ) as client:
-            return await Lastfm(path).exchange(client, TOKEN)
+            return await Lastfm("1" * 32, "2" * 32).exchange(client, TOKEN)
 
     with pytest.raises(LastfmError, match="start a new link"):
         asyncio.run(run())
@@ -422,7 +414,7 @@ def test_security_headers_secure_cookies_and_no_configuration_leaks(tmp_path):
         response = client.get("/login")
         assert "Secure" in response.headers["set-cookie"]
         assert response.headers["cache-control"] == "no-store"
-        assert response.headers["referrer-policy"] == "no-referrer"
+        assert response.headers["referrer-policy"] == "same-origin"
         assert (
             "frame-ancestors 'none'"
             in response.headers["content-security-policy"]
@@ -490,8 +482,6 @@ def test_account_page_escapes_provider_text_and_hides_other_user(service):
 
 
 def test_lastfm_network_error_does_not_expose_request_secrets(tmp_path):
-    path = tmp_path / "credentials.json"
-    path.write_text(json.dumps({"api_key": "1" * 32, "api_secret": "2" * 32}))
 
     def fail(request):
         raise httpx.ReadTimeout(f"secret URL: {request.url}")
@@ -500,7 +490,7 @@ def test_lastfm_network_error_does_not_expose_request_secrets(tmp_path):
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(fail)
         ) as client:
-            return await Lastfm(path).exchange(client, TOKEN)
+            return await Lastfm("1" * 32, "2" * 32).exchange(client, TOKEN)
 
     with pytest.raises(LastfmError) as error:
         asyncio.run(run())
@@ -524,25 +514,143 @@ def test_public_origin_rejects_credentials_and_non_origin_urls(origin):
         Settings(_env_file=None, public_url=origin)
 
 
-def test_bad_credentials_file_fails_startup_without_echoing_secret(tmp_path):
-    path = tmp_path / "lastfm.json"
-    path.write_text('{"api_secret":"sensitive"}')
-    app = create_app(
-        Settings(
-            _env_file=None,
-            data_dir=tmp_path / "data",
-            lastfm_credentials_file=path,
-        )
+@pytest.mark.parametrize(
+    "key,secret",
+    [
+        ("sensitive-invalid-key", "2" * 32),
+        ("1" * 32, "sensitive-invalid-secret"),
+        ("1" * 32, ""),
+        ("", "2" * 32),
+    ],
+)
+def test_invalid_environment_credentials_are_rejected_safely(key, secret):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError) as error:
+        Settings(_env_file=None, lastfm_api_key=key, lastfm_api_secret=secret)
+    for value in (key, secret):
+        if value:
+            assert value not in str(error.value)
+
+
+def test_empty_compose_credentials_are_optional():
+    settings = Settings(
+        _env_file=None, lastfm_api_key="", lastfm_api_secret=""
     )
-    with pytest.raises(
-        RuntimeError, match="account storage/credentials"
-    ) as error:
-        with TestClient(app):
-            pass
-    assert not app.state.ready
-    assert "sensitive" not in str(error.value)
+    assert not Lastfm(
+        settings.lastfm_api_key.get_secret_value(),
+        settings.lastfm_api_secret.get_secret_value(),
+    ).configured
 
 
-def test_empty_compose_credentials_setting_is_optional():
-    settings = Settings(_env_file=None, lastfm_credentials_file="")
-    assert settings.lastfm_credentials_file is None
+def test_environment_credentials_enable_linking_and_are_redacted(
+    tmp_path, monkeypatch
+):
+    key, secret = "a" * 32, "b" * 32
+    monkeypatch.setenv("LASTBRIDGE_LASTFM_API_KEY", key)
+    monkeypatch.setenv("LASTBRIDGE_LASTFM_API_SECRET", secret)
+    settings = Settings(_env_file=None, data_dir=tmp_path)
+    assert settings.lastfm_api_key.get_secret_value() == key
+    assert settings.lastfm_api_secret.get_secret_value() == secret
+    for value in (key, secret):
+        assert value not in repr(settings)
+        assert value not in settings.model_dump_json()
+    app = create_app(settings)
+    with TestClient(app) as client:
+        assert app.state.lastfm.configured
+        assert app.state.lastfm.api_key == key
+        assert app.state.lastfm.api_secret == secret
+        app.state.accounts.create_user("admin", PASSWORD, bootstrap=True)
+        login(client)
+        response = client.get("/")
+        assert "Link Last.fm</button>" in response.text
+        assert "configure Last.fm keys" not in response.text
+        assert key not in response.text
+        assert secret not in response.text
+
+
+def test_dotenv_credentials_are_loaded_locally(tmp_path, monkeypatch):
+    monkeypatch.delenv("LASTBRIDGE_LASTFM_API_KEY", raising=False)
+    monkeypatch.delenv("LASTBRIDGE_LASTFM_API_SECRET", raising=False)
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "LASTBRIDGE_LASTFM_API_KEY=" + "c" * 32 + "\n"
+        "LASTBRIDGE_LASTFM_API_SECRET=" + "d" * 32 + "\n"
+    )
+    settings = Settings(_env_file=dotenv)
+    assert settings.lastfm_api_key.get_secret_value() == "c" * 32
+    assert settings.lastfm_api_secret.get_secret_value() == "d" * 32
+
+
+def test_browser_form_origin_and_referrer_policy(service):
+    client, _, _ = service
+    response = client.get("/login")
+    # no-referrer makes real browser navigation POSTs send Origin: null.
+    # Preserve the origin for local forms; suppress external referrers instead.
+    assert response.headers["referrer-policy"] == "same-origin"
+    values = {
+        "csrf": csrf(response),
+        "username": "admin",
+        "password": PASSWORD,
+    }
+    for origin in ("null", "http://foreign.invalid", "http://localhost:5274"):
+        assert (
+            client.post(
+                "/login",
+                data=values,
+                headers={"Origin": origin},
+                follow_redirects=False,
+            ).status_code
+            == 403
+        )
+    assert (
+        client.post(
+            "/login",
+            data=values,
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        ).status_code
+        == 303
+    )
+
+
+def test_opaque_non_hex_lastfm_token_is_exchanged_once(service):
+    client, app, calls = service
+    login(client)
+    state = start_link(client)
+    token = "Synthetic_token-WithNonHexChars9"
+    assert len(token) == 32
+    assert finish_link(client, state, token).status_code == 303
+    assert calls == [token]
+    assert app.state.accounts.user("admin")["link_status"] == "linked"
+    assert finish_link(client, state, token).status_code == 400
+    assert calls == [token]
+
+
+@pytest.mark.parametrize(
+    "token", ["", "has whitespace", "bad\nvalue", "кирилиця"]
+)
+def test_invalid_callback_token_does_not_consume_flow(service, token):
+    client, _, calls = service
+    login(client)
+    state = start_link(client)
+    assert finish_link(client, state, token).status_code == 400
+    assert not calls
+    assert finish_link(client, state).status_code == 303
+
+
+def test_opaque_non_hex_session_key_is_accepted_without_exposure():
+    key = "Synthetic_session-Key_WithChars9"
+
+    async def run():
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(
+                    200,
+                    json={"session": {"name": "provider-user", "key": key}},
+                )
+            )
+        ) as client:
+            return await Lastfm("1" * 32, "2" * 32).exchange(client, TOKEN)
+
+    assert asyncio.run(run()) == ("provider-user", key)

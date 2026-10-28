@@ -125,6 +125,19 @@ class MetadataProvider:
             self.slots.release()
 
 
+def client_document(kind, document):
+    """Make persisted pre-rendition metadata safe for client song parsers."""
+    document = dict(document)
+    if kind == "song":
+        # Feishin unconditionally calls contentType.startsWith(). Unknown media
+        # needs a string without inventing an audio format before resolution.
+        document.setdefault("contentType", "application/octet-stream")
+    child = {"album": "song", "artist": "album"}.get(kind)
+    if child and child in document:
+        document[child] = [client_document(child, d) for d in document[child]]
+    return document
+
+
 class Catalog:
     def __init__(self, accounts: Accounts, provider=None):
         self.accounts = accounts
@@ -142,7 +155,11 @@ class Catalog:
             ).fetchone()
         if row is None or (kind is not None and row["kind"] != kind):
             raise CatalogError(70, "Catalog item not found")
-        return dict(row) | {"document": json.loads(row["document"])}
+        return dict(row) | {
+            "document": client_document(
+                row["kind"], json.loads(row["document"])
+            )
+        }
 
     def put(self, kind, source, document, image=None, complete=False):
         if not isinstance(source, str) or not SOURCE.fullmatch(source):
@@ -171,6 +188,7 @@ class Catalog:
                 document["created"] = (
                     json.loads(old["document"]).get("created") if old else None
                 ) or datetime.now(UTC).isoformat().replace("+00:00", "Z")
+            document = client_document(kind, document)
             connection.execute(
                 "INSERT INTO catalog VALUES(?,?,?,?,?,?,?) "
                 "ON CONFLICT(id) DO UPDATE SET document=excluded.document,"

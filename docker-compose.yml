@@ -9,11 +9,10 @@ services:
       LASTBRIDGE_LOG_LEVEL: ${LASTBRIDGE_LOG_LEVEL:-INFO}
       LASTBRIDGE_DATA_DIR: /app/data
       LASTBRIDGE_PUBLIC_URL: ${LASTBRIDGE_PUBLIC_URL:-http://127.0.0.1:5274}
-      LASTBRIDGE_LASTFM_CREDENTIALS_FILE: ${LASTBRIDGE_LASTFM_CREDENTIALS_FILE:-}
+      LASTBRIDGE_LASTFM_API_KEY: ${LASTBRIDGE_LASTFM_API_KEY:-}
+      LASTBRIDGE_LASTFM_API_SECRET: ${LASTBRIDGE_LASTFM_API_SECRET:-}
     volumes:
       - lastbridge-data:/app/data
-      # Place the optional Last.fm credential file here, readable by UID 10001.
-      - lastbridge-credentials:/app/credentials:ro
     init: true
     healthcheck:
       test:
@@ -28,4 +27,3 @@ services:
 
 volumes:
   lastbridge-data:
-  lastbridge-credentials:

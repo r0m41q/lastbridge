@@ -1,8 +1,9 @@
+import re
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,12 +23,26 @@ class Settings(BaseSettings):
     )
     data_dir: Path = Path("data")
     public_url: str = "http://127.0.0.1:5274"
-    lastfm_credentials_file: Path | None = None
+    lastfm_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    lastfm_api_secret: SecretStr = Field(default=SecretStr(""), repr=False)
 
-    @field_validator("lastfm_credentials_file", mode="before")
+    @field_validator("lastfm_api_key", "lastfm_api_secret")
     @classmethod
-    def empty_credentials_path(cls, value):
-        return None if value == "" else value
+    def validate_lastfm_credential(cls, value: SecretStr) -> SecretStr:
+        raw = value.get_secret_value()
+        if raw and not re.fullmatch(r"[a-fA-F0-9]{32}", raw):
+            raise ValueError(
+                "Last.fm credentials must contain 32 hex characters"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def validate_lastfm_pair(self):
+        if bool(self.lastfm_api_key.get_secret_value()) != bool(
+            self.lastfm_api_secret.get_secret_value()
+        ):
+            raise ValueError("Set both Last.fm API key and API secret")
+        return self
 
     @field_validator("public_url")
     @classmethod

@@ -1,12 +1,13 @@
 import hashlib
-import json
 import re
-from pathlib import Path
 from urllib.parse import urlencode
 
 import httpx
 
-HEX_KEY = re.compile(r"[a-fA-F0-9]{32}\Z")
+# Provider tokens/session keys are opaque. Live web tokens can contain non-hex
+# characters despite older API documentation. Bound printable ASCII input;
+# the provider validates authenticity during the signed exchange.
+AUTH_VALUE = re.compile(r"[\x21-\x7e]{1,2048}\Z")
 
 
 class LastfmError(Exception):
@@ -14,17 +15,8 @@ class LastfmError(Exception):
 
 
 class Lastfm:
-    def __init__(self, path: Path | None) -> None:
-        self.api_key = self.api_secret = ""
-        if path is not None:
-            try:
-                values = json.loads(path.read_text())
-                key, secret = values["api_key"], values["api_secret"]
-                if not HEX_KEY.fullmatch(key) or not HEX_KEY.fullmatch(secret):
-                    raise ValueError
-            except OSError, ValueError, KeyError, TypeError:
-                raise RuntimeError("Invalid Last.fm credential file") from None
-            self.api_key, self.api_secret = key, secret
+    def __init__(self, api_key: str = "", api_secret: str = "") -> None:
+        self.api_key, self.api_secret = api_key, api_secret
 
     @property
     def configured(self) -> bool:
@@ -62,7 +54,8 @@ class Lastfm:
             if (
                 not isinstance(name, str)
                 or not 1 <= len(name) <= 255
-                or not HEX_KEY.fullmatch(key)
+                or not isinstance(key, str)
+                or not AUTH_VALUE.fullmatch(key)
             ):
                 raise ValueError
         except httpx.HTTPError, ValueError, KeyError, TypeError:

@@ -63,22 +63,36 @@ Login attempts are limited per username and connecting IP over a one-minute
 window. Password hashing runs outside the event loop, with two concurrent
 operations at most. Forwarded client-IP headers are not trusted.
 
-Configure your own [Last.fm application](https://www.last.fm/api/account/create)
-locally. Use `<public URL>/lastfm/callback` as its callback URL. Put the following
-JSON structure in an ignored local file such as `data/lastfm.json`, replacing the
-placeholders through your editor, and restrict file permissions to its owner:
+Configure one [Last.fm application](https://www.last.fm/api/account/create) for
+the server. Use `<public URL>/lastfm/callback` as its callback URL. Put its key
+and shared secret in your ignored `.env` file:
 
-```json
-{"api_key": "YOUR_32_CHARACTER_API_KEY", "api_secret": "YOUR_32_CHARACTER_SECRET"}
+```dotenv
+LASTBRIDGE_PUBLIC_URL=http://127.0.0.1:5274
+LASTBRIDGE_LASTFM_API_KEY=YOUR_32_CHARACTER_API_KEY
+LASTBRIDGE_LASTFM_API_SECRET=YOUR_32_CHARACTER_SHARED_SECRET
 ```
 
-Set `LASTBRIDGE_LASTFM_CREDENTIALS_FILE=./data/lastfm.json` locally and
-`LASTBRIDGE_PUBLIC_URL` to the exact browser origin, such as
-`https://music.example.org`. The public URL has no path prefix, query or fragment;
-use that origin consistently for login and linking. Restart after configuration
-changes. Last.fm credentials are optional for startup; without them, account
-creation/sign-in works and the page explains that linking needs configuration.
-A configured unreadable or malformed credential file prevents startup.
+Docker Compose passes these variables to the container; local development reads
+the same `.env`. No credential JSON file or mount is needed. The old
+`LASTBRIDGE_LASTFM_CREDENTIALS_FILE` setting is removed. Keep real values out of
+source control and chat. Both empty means unconfigured: the service still starts
+but linking is unavailable. Setting only one or using malformed credentials fails
+configuration validation without echoing their values. Settings representations
+and JSON serialization mask these fields.
+
+`LASTBRIDGE_PUBLIC_URL` is the exact browser origin, without a path prefix, query,
+or fragment. For the default setup, use `http://127.0.0.1:5274/login` consistently;
+`localhost` is a different origin. Use your external HTTPS origin when deploying.
+After editing `.env`, recreate the container to load its environment:
+
+```sh
+docker compose up -d --force-recreate
+```
+
+After source changes, include `--build` as well. Reload the browser account page
+and choose **Link Last.fm**. Existing local accounts and Last.fm links remain in
+the persistent data volume.
 
 Each user signs in through the browser and presses **Link Last.fm**, authorizes
 at Last.fm, then returns to the same browser session. The callback uses the
@@ -115,8 +129,9 @@ and Last.fm session key use Fernet authenticated encryption. The database and
 with the application stopped; loss of the key makes encrypted credentials
 unrecoverable. Startup refuses to replace a missing key or accept a mismatched
 one. Encryption protects a database-only copy; anyone who can read the complete
-data volume can also read its key. The browser pages return no-store/referrer
-headers, escaped text, CSRF-protected forms, and HttpOnly session cookies; cookies
+data volume can also read its key. Browser pages return no-store and
+same-origin referrer headers, escaped text, CSRF-protected forms, and HttpOnly
+session cookies; cookies
 use Secure when the configured public origin is HTTPS.
 
 The implementation follows [Last.fm web authorization](https://www.last.fm/api/webauth)
@@ -274,7 +289,8 @@ to allow later configuration additions.
 | `LASTBRIDGE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL` |
 | `LASTBRIDGE_DATA_DIR` | `./data` | Local persistent directory; Compose uses `/app/data` |
 | `LASTBRIDGE_PUBLIC_URL` | `http://127.0.0.1:5274` | Exact browser/callback origin |
-| `LASTBRIDGE_LASTFM_CREDENTIALS_FILE` | unset | JSON file with application key/secret; empty means unset |
+| `LASTBRIDGE_LASTFM_API_KEY` | empty | Last.fm application API key; set together with the secret |
+| `LASTBRIDGE_LASTFM_API_SECRET` | empty | Last.fm application shared secret |
 
 The supported `lastbridge` entry point disables access logging because Subsonic
 requests may carry passwords/tokens in query strings. It logs lifecycle events,
@@ -296,11 +312,10 @@ docker compose down
 The runtime image runs as UID 10001 with one worker and stores data in the
 `lastbridge-data` named volume. It contains the installed application and runtime
 dependencies, without pytest, Ruff, uv, or installed pip. Run development checks
-locally using `venv/`. The read-only credentials volume can hold the Last.fm
-application credential file. A local Compose override can bind an ignored host
-file to `/app/credentials/lastfm.json:ro`; make it readable by container UID 10001
-and set `LASTBRIDGE_LASTFM_CREDENTIALS_FILE=/app/credentials/lastfm.json` in the
-Compose environment. Local host paths and container paths are different.
+locally using `venv/`. Last.fm application credentials are supplied through
+`LASTBRIDGE_LASTFM_API_KEY` and `LASTBRIDGE_LASTFM_API_SECRET` from the ignored
+`.env`; no credentials volume is required. Existing unused credential files or
+volumes are not deleted automatically.
 The build context excludes local environments, `.env`, data, and Git metadata.
 Restart after configuration changes and rebuild after source or dependency edits.
 
@@ -443,3 +458,33 @@ Piss In The Wind (21 tracks), and Судоми (one track), with artist release 
 and JPEG artwork. These checks used a disposable database and fetched no audio.
 Actual Amperfy/Feishin connection, synchronization, search and browsing remain
 pending manual review. No client playback or live Last.fm linking is claimed.
+
+Browser login correction: use `Referrer-Policy: same-origin` so browsers retain
+the Origin header on form POSTs. The previous `no-referrer` policy could send
+`Origin: null`, causing valid logins to fail CSRF validation. Origin/token checks
+remain enabled. After pulling source changes, rebuild/recreate the container and
+reload the login page; existing administrator accounts remain in the data volume.
+The correction passes all 98 tests. An isolated real-browser form check also
+confirmed the old policy sends `Origin: null` and the new policy preserves the
+form's origin; the user's live administrator login still needs a retry.
+
+Last.fm configuration now uses environment variables directly. The updated
+103-test suite and two additional CLI credential-redaction tests pass; lint,
+formatting and Compose configuration validate. No live keys were used for these
+checks. Rebuild the image after this source change, then recreate the container
+with the two variables set in the ignored `.env`.
+
+Last.fm callback tokens and session keys are treated as bounded, printable ASCII
+values rather than hex strings: current web authorization can return URL-safe
+non-hex tokens. Browser-session binding, ten-minute local expiry, atomic claims
+and replay protection remain enforced. Start a fresh link from the account page
+after rebuilding; do not reuse or refresh an old callback URL.
+
+Feishin 1.17.0 manual review confirmed login, remote search and search artwork;
+its album page initially stayed loading. Feishin's song parser unconditionally
+reads `contentType.startsWith(...)`. Unresolved tracks now return the generic
+`application/octet-stream` MIME type, including already-cached album/song and
+folder responses. This reports an unknown format without inventing an audio
+codec, bitrate, suffix or file size. Cached metadata does not need deleting or
+refetching. The album page still needs a user retry after rebuilding. Empty home
+screens and unavailable playback remain expected until later iterations.
