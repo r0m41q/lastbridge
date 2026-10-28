@@ -169,8 +169,10 @@ download tracks. Song results include official catalog audio; ordinary music
 videos and unavailable tracks are excluded. This is interactive search, not
 automatic matching of a requested recording to one result.
 
-Each result type has independent count/offset pagination. Counts are 0–100;
-remote discovery is capped at the provider's first 100 candidates per type.
+Each result type has independent count/offset pagination. Nonnegative counts
+up to 2,147,483,647 are accepted; requested page sizes above 100 are clamped to
+100, including Feishin's 500-item requests. Remote discovery is capped at the
+provider's first 100 candidates per type.
 Offsets beyond that window return an empty page. Short-lived per-user search
 snapshots preserve ordering for 60 seconds; at most 32 snapshots are held in RAM.
 Queries are not persisted. This cap is not a promise of exhaustive catalog search.

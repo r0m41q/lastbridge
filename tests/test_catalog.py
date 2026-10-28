@@ -295,7 +295,7 @@ def test_search_paging_snapshot_and_zero_counts(catalog_service):
         ("search3", {}, 10),
         ("search3", {"query": "x", "songCount": -1}, 10),
         ("search3", {"query": "x", "albumOffset": "bad"}, 10),
-        ("search3", {"query": "x", "songCount": 101}, 10),
+        ("search3", {"query": "x", "songCount": "all"}, 10),
         ("search3", {"query": "x" * 257}, 10),
         ("search3", {"query": "x", "musicFolderId": 2}, 70),
         ("getSong", {}, 10),
@@ -628,3 +628,89 @@ def test_cached_album_and_song_content_type_without_metadata_refetch(
         "{http://subsonic.org/restapi}directory/{http://subsonic.org/restapi}child"
     )
     assert child.attrib["contentType"] == "application/octet-stream"
+
+
+@pytest.mark.parametrize("method", ["search2", "search3"])
+@pytest.mark.parametrize("count", [101, 500, 2**31 - 1])
+def test_large_client_search_counts_are_accepted(
+    catalog_service, method, count
+):
+    _, _, provider, _ = catalog_service
+    for query in ("", "Daft Punk"):
+        response = body(
+            get(
+                catalog_service,
+                method,
+                query=query,
+                artistCount=count,
+                albumCount=count,
+                songCount=count,
+            )
+        )
+        assert response["status"] == "ok"
+        result = response[
+            "searchResult2" if method == "search2" else "searchResult3"
+        ]
+        assert all(len(rows) <= 100 for rows in result.values())
+        if not query:
+            assert provider.calls == []
+        else:
+            assert result["song"]
+
+
+def test_feishin_form_post_song_count_500_on_empty_library(catalog_service):
+    client, _, provider, keys = catalog_service
+    result = body(
+        client.post(
+            "/rest/search3.view",
+            data={
+                "apiKey": keys["admin"],
+                "v": "1.13.0",
+                "c": "Feishin",
+                "f": "json",
+                "query": "",
+                "artistCount": 0,
+                "albumCount": 0,
+                "songCount": 500,
+            },
+        )
+    )
+    assert result["status"] == "ok"
+    assert result["searchResult3"] == {"artist": [], "album": [], "song": []}
+    assert provider.calls == []
+
+
+def test_large_requested_song_page_remains_bounded(catalog_service):
+    _, _, provider, _ = catalog_service
+
+    async def many(payload):
+        provider.calls.append(payload)
+        return {"songs": [SONG | {"videoId": f"{i:011d}"} for i in range(150)]}
+
+    provider.fetch = many
+    result = body(
+        get(
+            catalog_service,
+            "search3",
+            query="many tracks",
+            artistCount=0,
+            albumCount=0,
+            songCount=500,
+        )
+    )
+    assert result["status"] == "ok"
+    assert len(result["searchResult3"]["song"]) == 100
+    assert len(provider.calls) == 1
+    end = body(
+        get(
+            catalog_service,
+            "search3",
+            query="many tracks",
+            artistCount=0,
+            albumCount=0,
+            songCount=500,
+            songOffset=100,
+        )
+    )
+    assert end["searchResult3"]["song"] == []
+    assert len(provider.calls) == 1

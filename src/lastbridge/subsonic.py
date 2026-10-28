@@ -191,7 +191,7 @@ async def dispatch(request, method, values, user):
         pages = {
             kind: (
                 integer(values, kind + "Offset", 0),
-                integer(values, kind + "Count", 20, 100),
+                min(integer(values, kind + "Count", 20), 100),
             )
             for kind in ("artist", "album", "song")
         }
@@ -208,7 +208,7 @@ async def dispatch(request, method, values, user):
             else {"artist": [], "album": [], "song": []}
         )
         result = {
-            k: results[k][offset : offset + count]
+            k: results[k][offset: offset + count]
             for k, (offset, count) in pages.items()
         }
         if method == "search2":
