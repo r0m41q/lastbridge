@@ -1,0 +1,29 @@
+services:
+  lastbridge:
+    build: .
+    ports:
+      - "${LASTBRIDGE_HOST:-127.0.0.1}:${LASTBRIDGE_PORT:-5274}:5274"
+    environment:
+      LASTBRIDGE_HOST: 0.0.0.0
+      LASTBRIDGE_PORT: 5274
+      LASTBRIDGE_LOG_LEVEL: ${LASTBRIDGE_LOG_LEVEL:-INFO}
+      LASTBRIDGE_DATA_DIR: /app/data
+    volumes:
+      - lastbridge-data:/app/data
+      # Reserved credential-file mount
+      - lastbridge-credentials:/app/credentials:ro
+    init: true
+    healthcheck:
+      test:
+        - CMD
+        - /app/venv/bin/python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5274/health/ready', timeout=2).close()"
+      interval: 15s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+volumes:
+  lastbridge-data:
+  lastbridge-credentials:
