@@ -4,10 +4,11 @@ Last.fm discovery and a private saved library through existing OpenSubsonic musi
 clients. Python service, with YouTube Music as the first music provider.
 
 **Current scope: accounts, Last.fm linking, catalog browsing, audio playback,
-seeking/downloads, private favorites, and shared permanent audio retention.**
-Recommendations and scrobbling arrive in later iterations. The user confirmed
+seeking/downloads, private favorites, shared permanent audio retention,
+Last.fm scrobbling, and resumable loved-track imports.**
+Recommendations arrive in later iterations. The user confirmed
 Feishin browsing, playback, seeking, and downloading; Amperfy testing is deferred.
-Favorites need the manual review described below.
+Favorites and Last.fm sync have manual review steps below.
 
 ## Local development
 
@@ -102,8 +103,8 @@ bound to the session, expires after ten minutes, and is consumed atomically
 before exchange. Callback tokens cannot be reused with another flow. Failed
 exchange requires a fresh link attempt and preserves any existing working link.
 Authorization survives application restarts. Revoked sessions have a persistent
-relink state; future authenticated Last.fm operations must mark that state on
-provider error 9. No background revocation polling is implemented, and transient
+relink state; scrobble delivery marks it on provider error 9. No background
+revocation polling is implemented, and transient
 Last.fm failures do not invalidate an existing link.
 
 After linking, generate a **client password** on the account page and copy it
@@ -117,12 +118,13 @@ authentication and form POST only; other extensions are not implemented yet.
 
 `/rest/ping` and `/rest/ping.view` support GET and URL-encoded form POST, XML
 (default) and JSON (`f=json`). Supply `v` and `c`. Errors use protocol responses:
-40/44 for bad credentials, 43 for conflicting mechanisms, 50 for missing/revoked
-Last.fm linking, and 0 for unimplemented endpoints. Normal music access requires
-a linked account; administration remains accessible before linking.
+40/44 for bad credentials, 43 for conflicting mechanisms, 50 for missing initial
+Last.fm linking, and 0 for unimplemented endpoints. Music clients require an
+initial link; revoked Last.fm authorization pauses delivery while preserving
+local playback. Administration remains accessible before linking.
 
-SQLite schema version 3 is created transactionally on first startup; versions 1
-and 2 are upgraded automatically without changing accounts, credentials or catalog
+SQLite schema version 4 is created transactionally on first startup; versions 1,
+2 and 3 are upgraded automatically without changing accounts, credentials or catalog
 identities. Back up the data volume before upgrading. Newer schema
 versions are refused. Browser passwords use salted scrypt; browser session tokens
 and callback state are stored as SHA-256 digests. The generated client credential
@@ -139,7 +141,7 @@ use Secure when the configured public origin is HTTPS.
 To preserve downloaded favorites as well as membership, include `data/saved/`
 with its audio files and manifests in that stopped-volume backup. Restoring only
 SQLite and the credential key preserves save intent but requires reacquisition of
-missing audio from the provider. Older application versions cannot open schema 3;
+missing audio from the provider. Older application versions cannot open schema 4;
 restore the matching pre-upgrade backup for a rollback.
 
 The implementation follows [Last.fm web authorization](https://www.last.fm/api/webauth)
@@ -278,8 +280,108 @@ For this iteration's review, rebuild with `docker compose up -d --build`, then:
    other still sees its own heart and can play it. Neither sees the other's
    favorites or download table.
 
-Amperfy checks can wait until an iOS device is available. Recommendations, Last.fm
-imports and scrobbling are not part of this iteration.
+Amperfy checks can wait until an iOS device is available. Recommendations remain
+future work. Last.fm sync review follows.
+
+## Last.fm scrobbling and loved-track import
+
+Linking Last.fm automatically creates a private loved-track import. Existing
+linked accounts also receive initial import intent on startup after upgrading.
+Open **Last.fm import and scrobble status** on your browser account (`/lastfm/sync`)
+for progress, pause/resume, refresh, unmatched tracks, and delivery status. Reload
+to update; `/library` shows the resulting audio download jobs.
+
+The importer fetches 50 loved tracks per page using
+[user.getLovedTracks](https://www.last.fm/api/show/user.getLovedTracks). It stores
+each page and its next-page cursor together, then gradually resolves recordings,
+with at least two seconds between import operations per user. Pause state and
+progress survive restart. Pausing prevents new import work; an already committed
+favorite/download can finish. Refresh scans pages again without removing any
+local favorites or automatically retrying unmatched tracks. Use **Retry unmatched
+recordings** for another matching attempt. Last.fm's changing page order is not a
+snapshot: if loves change during import, refresh afterward to catch shifted rows.
+
+Matching requires an exact normalized title and artist credit in official YouTube
+Music album audio. Version qualifiers stay significant. Multiple eligible video
+IDs are ambiguous and remain unmatched; live versions and covers are not selected
+to fill gaps. Last.fm loved pages supply no album or duration, so this deliberately
+favors leaving a track unmatched over silently choosing an edition. A match becomes
+a private song favorite and queues the same permanent save job as a client heart.
+Transient lookup/storage failures get three attempts before becoming unmatched.
+Last.fm read outages retain the page cursor and retry after 60 seconds; permanent
+API errors pause the import and appear on the status page.
+
+Unhearting a song records a private local removal, including the imported recording
+identity. Refresh, restart and retry cannot silently restore it. A deliberate client
+heart clears that song's removal. Removing an album releases its album snapshot;
+independent song favorites, including imported loves, still retain their songs.
+Local hearts/unlikes never call Last.fm `track.love` or `track.unlove`. Linking a
+different Last.fm account starts its import while preserving the local library.
+
+The [OpenSubsonic scrobble endpoint](https://opensubsonic.netlify.app/docs/endpoints/scrobble/)
+accepts GET/form POST, repeated song IDs and corresponding optional millisecond
+start times. Entire batches validate before recording anything; HEAD cannot write.
+The existing 128-parameter/16 KiB limits also apply. `submission=false` only records
+a local start marker; it sends no Last.fm now-playing request and adds no play.
+`submission=true` (the default) records a private play and queues signed HTTPS
+[track.scrobble](https://www.last.fm/api/show/track.scrobble) delivery. Streaming,
+seeking and downloading alone never create plays or favorites.
+
+Clients must report submissions after half the track or four minutes, whichever
+comes first, as described in [Last.fm's scrobbling rules](https://www.last.fm/api/scrobbling).
+The server trusts that client signal because this endpoint carries no measured
+listening duration; tracks of 30 seconds or less, and unknown durations, are kept
+as local ignored reports. Own song/search/detail responses expose own play counts
+and last-play timestamps without persisting them in shared metadata. Do not enable
+another Last.fm scrobbler for the same playback: independently submitted reports
+cannot be deduplicated by this server.
+
+Reports deduplicate by local user, linked Last.fm account, song ID and UTC start
+second. Feishin omits `time`; the server uses its previous start notification for
+the same client/song. Without one, receipt time is used. Untimed submissions also
+have a 30-second retry window, which can collapse rapid repeat reports. The legacy
+protocol cannot distinguish concurrent plays of the same song by the same account
+at the same start second. Explicit timestamps are the strongest retry identity.
+
+The durable queue sends older pending reports first within an account. Other
+users advance independently. Connection failures and Last.fm errors 11, 16 and 29
+retry with exponential backoff from 30 seconds to one hour. Rejected/ignored
+reports retain their status; provider messages and credentials are never shown.
+Error 9 requests relinking, while existing clients retain local playback access.
+Queued reports are bound to their original Last.fm username; relinking another
+account never redirects old plays to it. Relink the original account to resume
+blocked reports. API configuration/authorization can be checked through `getUser`
+(`scrobblingEnabled`); never-linked users still cannot connect music clients.
+
+Read/write timeouts, malformed delivery responses and interrupted in-flight jobs
+become **uncertain**. They may already exist on Last.fm, so automatic retries stop.
+Check your Last.fm history before using the separate **Retry uncertain reports**
+button, which explicitly warns about duplicates. Exactly-once delivery to Last.fm
+is not guaranteed. Other failed/blocked reports have a separate retry action for
+the currently linked account. Forms require your browser session and CSRF token;
+the page shows up to 200 unmatched/removed records and the latest 100 reports.
+The database retains all deduplication records and import/removal intent; no
+history pruning or total metadata quota is implemented yet.
+
+For review, back up the stopped data volume before upgrading to schema 4, then
+rebuild with `docker compose up -d --build`. Upgrading automatically starts imports
+for configured linked accounts and may grow permanent storage. Check the sync
+page and pause imports there if needed.
+
+1. Open `/lastfm/sync`. Verify your loved tracks start importing, matches appear
+   in Feishin's saved library and `/library`, and uncertain/unmatched entries are
+   visible. Pause, restart, and resume to check progress persists.
+2. Unheart an imported song, refresh loves, and verify it stays removed. Heart
+   it deliberately to save it again. Check another user has separate progress.
+3. Reconnect Feishin, enable server scrobbling in its settings, and listen past
+   the qualifying threshold. Check the report becomes `sent` and appears once
+   in your own Last.fm history. A start/skip or download alone should not add one.
+4. If Last.fm is unavailable, verify cached playback continues and reports wait
+   for retry. Review any `uncertain` reports against Last.fm before retrying them.
+
+Automated checks use mocked Last.fm responses and disposable storage. No real
+Last.fm scrobbles or loved imports have been sent by the agent; client/device
+acceptance remains manual. No new credentials or configuration variables are needed.
 
 Host acquisition on 2026-10-28 verified all six complete renditions, with no
 10-second clipping. Initial download times were 1.9–3.3 seconds, before adding
@@ -715,3 +817,16 @@ user's retained file after the first user's unheart. The container used syntheti
 accounts, temporary storage and UID 10001; real Feishin favorites and Amperfy
 acceptance are still manual. No dependency or container media-tool changes in
 this iteration; the earlier security findings remain a historical audit.
+
+Iteration 7, 2026-10-29: durable private playback reports and Last.fm scrobble
+delivery; automatic paginated loved-track imports, conservative matching,
+pause/resume/refresh and local-removal protection. All 206 tests pass, including
+44 sync tests covering account isolation, signatures/UTF-8, retries and ambiguous
+delivery, interrupted requests, cursor recovery, matching, browser CSRF/escaping,
+and schema 1/2/3 upgrades. Ruff lint/format, diff and Compose checks pass. A
+disposable, network-disabled Docker run as UID 10001 verified installed-package
+startup, private import, two-account mocked delivery, deduplication and restart.
+All Last.fm responses were mocked; no live credentials, real scrobbles or real
+Last.fm imports were used. Feishin server-scrobbling and live import acceptance
+remain manual. Dependencies, audio policy and container media tools are unchanged;
+no new vulnerability scan is claimed.

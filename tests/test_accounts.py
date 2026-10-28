@@ -71,6 +71,11 @@ def service(tmp_path, monkeypatch):
         return "Lastfm-" + token[0], LASTFM_SESSION
 
     monkeypatch.setattr(Lastfm, "exchange", exchange)
+
+    async def loved(self, client, name, page):
+        return [], 0
+
+    monkeypatch.setattr(Lastfm, "loved", loved)
     app = create_app(
         Settings(
             _env_file=None,
@@ -82,6 +87,18 @@ def service(tmp_path, monkeypatch):
     )
     with TestClient(app) as client:
         yield client, app, calls
+
+
+def drop_sync_tables(connection):
+    for table in (
+        "playback_starts",
+        "scrobbles",
+        "love_imports",
+        "loved_items",
+        "favorite_removals",
+        "love_removals",
+    ):
+        connection.execute(f"DROP TABLE {table}")
 
 
 def test_migration_restart_encryption_and_recovery(tmp_path):
@@ -106,7 +123,7 @@ def test_migration_restart_encryption_and_recovery(tmp_path):
     assert store.path.stat().st_mode & 0o777 == 0o600
     assert (tmp_path / "credentials.key").stat().st_mode & 0o777 == 0o600
     with store.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
     store.reset_password("admin", "replacement browser password")
     assert store.session(token) is None
     assert store.client_user({"apiKey": secret}) is None
@@ -131,7 +148,7 @@ def test_missing_or_wrong_key_does_not_silently_replace_credentials(tmp_path):
 def test_newer_database_refused(tmp_path):
     store = Accounts(tmp_path)
     with store.transaction() as connection:
-        connection.execute("PRAGMA user_version=4")
+        connection.execute("PRAGMA user_version=5")
     with pytest.raises(RuntimeError, match="newer"):
         Accounts(tmp_path)
 
@@ -299,9 +316,9 @@ def test_subsonic_authentication_and_rotation(service, mechanism):
     store.mark_relink(user["id"])
     assert (
         client.get("/rest/ping", params=values).json()["subsonic-response"][
-            "error"
-        ]["code"]
-        == 50
+            "status"
+        ]
+        == "ok"
     )
     store.finish_link(digest(token), "alice-lastfm", LASTFM_SESSION)
     store.rotate_client_secret(user["id"])

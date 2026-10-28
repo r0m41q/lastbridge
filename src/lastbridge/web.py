@@ -176,6 +176,11 @@ async def account(request: Request):
         )
     else:
         body += "<p>Link Last.fm before connecting a music client.</p>"
+    if user["link_status"] in ("linked", "relink"):
+        body += (
+            '<p><a href="/lastfm/sync">Last.fm import '
+            "and scrobble status</a></p>"
+        )
     if request.app.state.lastfm.configured:
         body += form(
             "/lastfm/link",
@@ -259,6 +264,112 @@ async def retry_downloads(request: Request):
         raise HTTPException(403, "Link Last.fm first")
     request.app.state.library.retry(user["id"])
     return RedirectResponse("/library", status_code=303)
+
+
+@router.get("/lastfm/sync")
+async def sync_page(request: Request):
+    user = current_user(request)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+    job, counts, items, reports = request.app.state.sync.snapshot(user["id"])
+    body = (
+        '<p><a href="/">Your account</a> · '
+        '<a href="/library">Downloads</a></p>'
+    )
+    if user["link_status"] != "linked":
+        body += (
+            "<p>Relink Last.fm on your account page to resume delivery.</p>"
+        )
+    body += (
+        "<h2>Loved-track import</h2><p>Starts automatically after linking. "
+        "Confident matches become favorites and queue permanent downloads. "
+        "Local unlikes stay removed on refresh. Pausing stops new import "
+        "work; downloads already queued can finish. Reload for progress.</p>"
+    )
+    if job:
+        total_pages = (
+            str(job["total_pages"])
+            if job["total_pages"] is not None
+            else "unknown"
+        )
+        body += (
+            f"<p>Account: {escape(job['target'])}. "
+            f"Status: {escape(job['state'])}. "
+            f"Next page: {job['next_page']}; total pages: "
+            f"{total_pages}. "
+            f"Fetched rows: {job['fetched']}.</p>"
+        )
+        if job["error"]:
+            body += f"<p>{escape(job['error'])}</p>"
+        body += (
+            "<ul>"
+            + "".join(
+                f"<li>{escape(state)}: {count}</li>"
+                for state, count in sorted(counts.items())
+            )
+            + "</ul>"
+        )
+        for action, label in (
+            ("pause", "Pause import"),
+            ("resume", "Resume import"),
+            ("refresh", "Refresh Last.fm loves"),
+            ("retry-matches", "Retry unmatched recordings"),
+        ):
+            body += form("/lastfm/sync/" + action, user["csrf"], label)
+        body += "<p>Up to 200 unmatched or locally removed recordings:</p><ul>"
+        for item in items:
+            body += (
+                f"<li>{escape(item['artist'])} — {escape(item['title'])}: "
+                f"{escape(item['state'])}; {escape(item['error'] or '')}</li>"
+            )
+        body += "</ul>"
+    else:
+        body += "<p>No import queued. Link Last.fm to start.</p>"
+    body += (
+        "<h2>Scrobbles</h2><p>Only completed-play reports count. "
+        "Streaming and downloading do not count. Configure your client "
+        "to submit "
+        "after half the track or four minutes. Avoid enabling another Last.fm "
+        "scrobbler for the same playback.</p>"
+        "<p>Uncertain means Last.fm may already have accepted a report. "
+        "Automatic retries stop for these reports. Check your Last.fm history "
+        "before retrying; a manual retry may create a duplicate.</p>"
+        "<p>Latest 100 reports:</p><table><tr><th>Track</th><th>Account</th>"
+        "<th>Start (UTC Unix seconds)</th><th>Status</th>"
+        "<th>Attempts</th></tr>"
+    )
+    for report in reports:
+        body += (
+            f"<tr><td>{escape(report['title'])}</td>"
+            f"<td>{escape(report['target'])}</td>"
+            f"<td>{report['timestamp']}</td><td>{escape(report['state'])}: "
+            f"{escape(report['error'] or '')}</td>"
+            f"<td>{report['attempts']}</td></tr>"
+        )
+    body += "</table>"
+    body += form(
+        "/lastfm/sync/retry-scrobbles",
+        user["csrf"],
+        "Retry failed or blocked reports for my linked account",
+    )
+    body += form(
+        "/lastfm/sync/retry-uncertain",
+        user["csrf"],
+        "Retry uncertain reports — may duplicate Last.fm history",
+    )
+    return page("Last.fm sync", body)
+
+
+@router.post("/lastfm/sync/{action}")
+async def sync_action(request: Request, action: str):
+    user, _ = await protected_form(request)
+    if action != "pause" and user["link_status"] != "linked":
+        raise HTTPException(403, "Link Last.fm first")
+    try:
+        request.app.state.sync.control(user["id"], action)
+    except ValueError:
+        raise HTTPException(400, "Unknown sync action") from None
+    return RedirectResponse("/lastfm/sync", status_code=303)
 
 
 @router.post("/logout")
@@ -348,5 +459,6 @@ async def callback(request: Request):
         user["token_hash"], name, secret
     ):
         raise HTTPException(400, "Session expired; start a new Last.fm link")
+    request.app.state.sync.linked(user["id"])
     # Remove the provider token and state from the address bar immediately.
     return RedirectResponse("/", status_code=303)

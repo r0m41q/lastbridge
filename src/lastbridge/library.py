@@ -6,6 +6,7 @@ import time
 from datetime import UTC, datetime
 
 from lastbridge.catalog import CatalogError
+from lastbridge.recordings import recording_key
 
 logger = logging.getLogger(__name__)
 
@@ -41,20 +42,41 @@ class Library:
 
     def decorate(self, user_id, document):
         stars = self.stars(user_id)
+        with self.accounts.connection() as connection:
+            plays = {
+                row["song_id"]: (row["count"], row["last"])
+                for row in connection.execute(
+                    "SELECT song_id,count(*) AS count,MAX(timestamp) AS last "
+                    "FROM scrobbles WHERE user_id=? GROUP BY song_id",
+                    (user_id,),
+                )
+            }
 
         def visit(value):
             if isinstance(value, list):
                 return [visit(v) for v in value]
             if not isinstance(value, dict):
                 return value
-            result = {k: visit(v) for k, v in value.items() if k != "starred"}
+            result = {
+                k: visit(v)
+                for k, v in value.items()
+                if k not in ("starred", "playCount", "played")
+            }
             if result.get("id") in stars:
                 result["starred"] = stars[result["id"]]
+            if result.get("id") in plays:
+                count, last = plays[result["id"]]
+                result["playCount"] = count
+                result["played"] = (
+                    datetime.fromtimestamp(last, UTC)
+                    .isoformat()
+                    .replace("+00:00", "Z")
+                )
             return result
 
         return visit(document)
 
-    async def change(self, user_id, targets, enabled):
+    async def change(self, user_id, targets, enabled, *, imported=None):
         if not targets:
             raise CatalogError(10, "Supply id, albumId or artistId")
         # Validate the whole batch before changing private membership. Album
@@ -72,8 +94,79 @@ class Library:
             prepared[item_id] = tracks
         now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         with self.accounts.transaction() as connection:
+            if imported is not None:
+                target, key = imported
+                active = connection.execute(
+                    "SELECT 1 FROM love_imports WHERE user_id=? "
+                    "AND target=? AND state='active'",
+                    (user_id, target),
+                ).fetchone()
+                removed = connection.execute(
+                    "SELECT 1 FROM love_removals WHERE user_id=? "
+                    "AND recording_key=?",
+                    (user_id, key),
+                ).fetchone()
+                if not active or removed:
+                    return False
             changed = False
             for item_id, tracks in prepared.items():
+                stored = self.catalog.read(item_id)
+                document = stored["document"]
+                key = (
+                    recording_key(
+                        document.get("artist", ""), document["title"]
+                    )
+                    if stored["kind"] == "song"
+                    else None
+                )
+                if imported is not None:
+                    if connection.execute(
+                        "SELECT 1 FROM favorite_removals WHERE user_id=? "
+                        "AND item_id=?",
+                        (user_id, item_id),
+                    ).fetchone():
+                        return False
+                else:
+                    if enabled:
+                        connection.execute(
+                            "DELETE FROM favorite_removals "
+                            "WHERE user_id=? AND item_id=?",
+                            (user_id, item_id),
+                        )
+                    else:
+                        connection.execute(
+                            "INSERT OR IGNORE INTO favorite_removals "
+                            "VALUES(?,?)",
+                            (user_id, item_id),
+                        )
+                    if key is not None:
+                        if enabled:
+                            connection.execute(
+                                "DELETE FROM love_removals WHERE user_id=? "
+                                "AND (recording_key=? OR recording_key IN "
+                                "(SELECT recording_key FROM loved_items "
+                                "WHERE user_id=? AND song_id=?))",
+                                (user_id, key, user_id, item_id),
+                            )
+                        else:
+                            connection.execute(
+                                "INSERT OR IGNORE INTO love_removals "
+                                "SELECT user_id,recording_key "
+                                "FROM loved_items "
+                                "WHERE user_id=? AND song_id=?",
+                                (user_id, item_id),
+                            )
+                            connection.execute(
+                                "INSERT OR IGNORE INTO love_removals "
+                                "VALUES(?,?)",
+                                (user_id, key),
+                            )
+                            connection.execute(
+                                "UPDATE loved_items SET state='skipped', "
+                                "error='Removed locally.' WHERE user_id=? "
+                                "AND (recording_key=? OR song_id=?)",
+                                (user_id, key, item_id),
+                            )
                 if not enabled:
                     deleted = connection.execute(
                         "DELETE FROM favorites WHERE user_id=? AND item_id=?",
@@ -114,6 +207,7 @@ class Library:
             )
         await self.reconcile()
         self.wake.set()
+        return True
 
     async def reconcile(self, startup=False):
         # Durable favorites are the source of pin truth. A failed promotion or

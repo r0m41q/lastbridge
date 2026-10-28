@@ -89,6 +89,11 @@ async def dispatch(request, method, values, user):
     library = request.app.state.library
     user_id = user["id"]
     folder(values)
+    if method == "scrobble":
+        if request.method == "HEAD":
+            raise CatalogError(10, "Use GET or POST to report playback")
+        request.app.state.sync.report(user, values)
+        return {}
     if method in ("star", "unstar"):
         if request.method == "HEAD":
             raise CatalogError(10, "Use GET or POST to change favorites")
@@ -118,7 +123,11 @@ async def dispatch(request, method, values, user):
             "user": {
                 "username": name,
                 "folder": [1],
-                "scrobblingEnabled": False,
+                "scrobblingEnabled": bool(
+                    request.app.state.lastfm.configured
+                    and user["link_status"] == "linked"
+                    and user["lastfm_secret"]
+                ),
                 **{
                     role + "Role": False
                     for role in (
@@ -241,7 +250,7 @@ async def dispatch(request, method, values, user):
         elif kind == "random":
             random.shuffle(albums)
         elif kind in ("recent", "frequent", "highest"):
-            # Playback history and ratings are separate iterations.
+            # Album history aggregation and ratings remain future work.
             albums = []
         albums = albums[offset: offset + size]
         if method == "getAlbumList":
@@ -375,6 +384,8 @@ async def endpoint(request: Request, method: str):
             request,
             multiple=frozenset({"id", "albumId", "artistId"})
             if method in ("star", "unstar")
+            else frozenset({"id", "time"})
+            if method == "scrobble"
             else frozenset(),
         )
     except HTTPException:
@@ -395,7 +406,7 @@ async def endpoint(request: Request, method: str):
         return reply(values, code, "Wrong username or client password")
     if not values.get("v") or not values.get("c"):
         return reply(values, 10, "Required parameters: v and c")
-    if user["link_status"] != "linked":
+    if user["link_status"] not in ("linked", "relink"):
         return reply(
             values, 50, "Link Last.fm in your Lastbridge browser account"
         )

@@ -6,7 +6,7 @@ from xml.etree.ElementTree import fromstring
 
 import pytest
 import test_catalog
-from test_accounts import csrf
+from test_accounts import csrf, drop_sync_tables
 from test_audio import AUDIO, OTHER, SOURCE, THIRD, FakeAudio
 from test_catalog import SONG, body, get, search
 
@@ -535,6 +535,7 @@ def test_v2_migration_preserves_catalog_accounts_and_credentials(tmp_path):
     asyncio.run(audio.close())
     secret = accounts.rotate_client_secret(accounts.user("admin")["id"])
     with accounts.transaction() as connection:
+        drop_sync_tables(connection)
         connection.execute("DROP TABLE favorite_tracks")
         connection.execute("DROP TABLE favorites")
         connection.execute("DROP TABLE save_jobs")
@@ -544,7 +545,7 @@ def test_v2_migration_preserves_catalog_accounts_and_credentials(tmp_path):
     assert migrated.client_user({"apiKey": secret})["username"] == "admin"
     assert Catalog(migrated).read(song["id"]) == catalog.read(song["id"])
     with migrated.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
         assert (
             connection.execute("SELECT count(*) FROM favorites").fetchone()[0]
             == 0

@@ -16,6 +16,7 @@ from lastbridge.config import Settings
 from lastbridge.lastfm import Lastfm
 from lastbridge.library import Library
 from lastbridge.subsonic import router as subsonic_router
+from lastbridge.sync import LastfmSync
 from lastbridge.web import router as web_router
 
 logger = logging.getLogger(__name__)
@@ -76,28 +77,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         try:
             await app.state.library.start(app.state.audio)
-        except BaseException:
-            await app.state.audio.close()
-            raise
-
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(15.0, connect=5.0),
-            limits=httpx.Limits(
-                max_connections=20, max_keepalive_connections=10
-            ),
-            follow_redirects=False,
-        ) as client:
-            app.state.http_client = client
-            app.state.ready = True
-            logger.info("Lastbridge ready")
-            try:
-                yield
-            finally:
-                app.state.ready = False
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(15.0, connect=5.0),
+                limits=httpx.Limits(
+                    max_connections=20, max_keepalive_connections=10
+                ),
+                follow_redirects=False,
+            ) as client:
+                app.state.http_client = client
+                app.state.sync = LastfmSync(
+                    app.state.accounts,
+                    app.state.catalog,
+                    app.state.library,
+                    app.state.lastfm,
+                    client,
+                )
                 try:
-                    await app.state.library.close()
+                    await app.state.sync.start()
+                    app.state.ready = True
+                    logger.info("Lastbridge ready")
+                    yield
                 finally:
-                    await app.state.audio.close()
+                    app.state.ready = False
+                    await app.state.sync.close()
+        finally:
+            try:
+                await app.state.library.close()
+            finally:
+                await app.state.audio.close()
         logger.info("Lastbridge stopped")
 
     app = FastAPI(

@@ -10,6 +10,8 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet
 
+from lastbridge.sync_schema import SCHEMA as SYNC_SCHEMA
+
 USERNAME = re.compile(r"[a-z0-9][a-z0-9_.-]{0,63}\Z")
 SESSION_SECONDS = 12 * 60 * 60
 
@@ -94,7 +96,7 @@ class Accounts:
         self.path.chmod(0o600)
         with self.transaction() as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 3:
+            if version > 4:
                 raise RuntimeError("Database is newer than this application")
             if version == 0:
                 for statement in SCHEMA:
@@ -142,6 +144,10 @@ class Accounts:
                     "REAL NOT NULL DEFAULT 0, PRIMARY KEY(source,policy))"
                 )
                 connection.execute("PRAGMA user_version=3")
+            if version < 4:
+                for statement in SYNC_SCHEMA:
+                    connection.execute(statement)
+                connection.execute("PRAGMA user_version=4")
             check = connection.execute(
                 "SELECT value FROM credential_check"
             ).fetchone()[0]

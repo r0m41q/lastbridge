@@ -7,6 +7,7 @@ from xml.etree.ElementTree import fromstring
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from test_accounts import drop_sync_tables
 
 from lastbridge.accounts import Accounts
 from lastbridge.app import create_app
@@ -453,6 +454,7 @@ def test_migration_from_v1_preserves_accounts(tmp_path):
     store = Accounts(tmp_path)
     store.create_user("admin", "a sufficiently long password", bootstrap=True)
     with store.transaction() as connection:
+        drop_sync_tables(connection)
         connection.execute("DROP TABLE favorite_tracks")
         connection.execute("DROP TABLE favorites")
         connection.execute("DROP TABLE save_jobs")
@@ -462,7 +464,7 @@ def test_migration_from_v1_preserves_accounts(tmp_path):
     migrated = Accounts(tmp_path)
     assert migrated.user("admin")["admin"] == 1
     with migrated.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
         assert (
             connection.execute("SELECT count(*) FROM catalog").fetchone()[0]
             == 0

@@ -12,6 +12,8 @@ from uuid import NAMESPACE_URL, uuid5
 import httpx
 
 from lastbridge.accounts import Accounts
+from lastbridge.providers.base import Candidate, Recording
+from lastbridge.providers.youtube import match_recording
 
 SOURCE = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 IMAGE_HOSTS = frozenset(
@@ -314,6 +316,53 @@ class Catalog:
         while len(self.searches) > 32:
             self.searches.popitem(last=False)
         return result
+
+    async def match_loved(self, artist, title):
+        # No album/duration is supplied by user.getLovedTracks. Keep version
+        # qualifiers and reject multiple distinct eligible recordings.
+        rows = await self.provider.fetch(
+            {
+                "operation": "search",
+                "query": f"{artist} {title}",
+                "kinds": ["songs"],
+            }
+        )
+        candidates, originals = [], {}
+        for row in rows.get("songs", [])[:100]:
+            if not isinstance(row, dict):
+                continue
+            source = row.get("videoId")
+            if (
+                not isinstance(source, str)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{11}", source)
+                or row.get("videoType") != "MUSIC_VIDEO_TYPE_ATV"
+                or row.get("isAvailable") is False
+                or not isinstance(row.get("album"), dict)
+                or not isinstance(row.get("title"), str)
+                or not isinstance(row.get("artists"), list)
+            ):
+                continue
+            names = tuple(
+                a["name"]
+                for a in row["artists"]
+                if isinstance(a, dict) and isinstance(a.get("name"), str)
+            )
+            candidates.append(
+                Candidate(
+                    source,
+                    row.get("title", ""),
+                    names,
+                    row["album"].get("name"),
+                    row.get("duration_seconds"),
+                    True,
+                )
+            )
+            originals[source] = row
+        match = match_recording(Recording(artist, title), candidates)
+        song = self.song(originals[match.source_id])
+        if song is None:
+            raise CatalogError(70, "Recording unavailable")
+        return song
 
     async def detail(self, item_id, kind):
         stored = self.read(item_id, kind)
