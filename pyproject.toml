@@ -15,6 +15,7 @@ dependencies = [
     "pydantic>=2.12,<3",
     "pydantic-settings>=2.10,<3",
     "uvicorn>=0.35,<1",
+    "ytmusicapi>=1.12.3,<2",
 ]
 
 [project.scripts]
@@ -22,7 +23,6 @@ lastbridge = "lastbridge.__main__:main"
 
 [dependency-groups]
 probe = [
-    "ytmusicapi>=1.12.3,<2",
     "yt-dlp[default]>=2026.10.1",
 ]
 dev = [

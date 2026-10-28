@@ -94,7 +94,7 @@ class Accounts:
         self.path.chmod(0o600)
         with self.transaction() as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 1:
+            if version > 2:
                 raise RuntimeError("Database is newer than this application")
             if version == 0:
                 for statement in SCHEMA:
@@ -104,6 +104,16 @@ class Accounts:
                     (self.encrypt("lastbridge"),),
                 )
                 connection.execute("PRAGMA user_version=1")
+            if version < 2:
+                connection.execute(
+                    "CREATE TABLE catalog (id TEXT PRIMARY KEY, kind TEXT "
+                    "NOT NULL CHECK(kind IN ('artist','album','song')), "
+                    "source TEXT NOT NULL, document TEXT NOT NULL, "
+                    "image TEXT, "
+                    "complete INTEGER NOT NULL DEFAULT 0, updated INTEGER "
+                    "NOT NULL, UNIQUE(kind,source))"
+                )
+                connection.execute("PRAGMA user_version=2")
             check = connection.execute(
                 "SELECT value FROM credential_check"
             ).fetchone()[0]

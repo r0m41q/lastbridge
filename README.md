@@ -1,12 +1,12 @@
 # Lastbridge
 
 Last.fm discovery and a private saved library through existing OpenSubsonic music
-clients. Python service, with YouTube Music as the planned first music provider.
+clients. Python service, with YouTube Music as the first music provider.
 
-**Current scope: accounts, Last.fm linking, protocol authentication, health
-routes, and a developer-only YouTube probe.** The browser account pages work;
-the protocol currently implements authenticated `ping` only. Catalog browsing,
-audio caching, recommendations, and client playback are not implemented yet.
+**Current scope: accounts, Last.fm linking, authenticated catalog search and
+browsing, artwork, health routes, and a developer-only YouTube probe.** Audio
+streaming, caching, favorites, and recommendations arrive in later iterations.
+Actual Amperfy/Feishin onboarding still needs manual verification.
 
 ## Local development
 
@@ -97,8 +97,8 @@ music apps. It is separate from the browser password; replacing it revokes the
 previous value in every app. It also works as an OpenSubsonic `apiKey` without a
 username. Legacy plain/`enc:` password and `md5(client_password + salt)` token
 authentication work with this same generated value. The browser password cannot
-authenticate protocol calls. Extension discovery and actual client onboarding
-come in the next iteration; no extension capabilities are advertised yet.
+authenticate protocol calls. Public extension discovery advertises API key
+authentication and form POST only; other extensions are not implemented yet.
 
 `/rest/ping` and `/rest/ping.view` support GET and URL-encoded form POST, XML
 (default) and JSON (`f=json`). Supply `v` and `c`. Errors use protocol responses:
@@ -106,7 +106,8 @@ come in the next iteration; no extension capabilities are advertised yet.
 Last.fm linking, and 0 for unimplemented endpoints. Normal music access requires
 a linked account; administration remains accessible before linking.
 
-SQLite schema version 1 is created transactionally on first startup. Newer schema
+SQLite schema version 2 is created transactionally on first startup; version 1
+is upgraded automatically without changing accounts or credentials. Newer schema
 versions are refused. Browser passwords use salted scrypt; browser session tokens
 and callback state are stored as SHA-256 digests. The generated client credential
 and Last.fm session key use Fernet authenticated encryption. The database and
@@ -124,7 +125,82 @@ Tests use a mocked provider exchange; **real Last.fm authorization has not been
 tested with live application keys**. For review, bootstrap an administrator,
 create a second account, link each to its own Last.fm account, restart the service,
 and verify each link remains associated with the correct local account. Catalog
-and playback checks belong to later iterations.
+review instructions follow; playback belongs to the next iteration.
+
+## Catalog browsing and client review
+
+Select a generic **Subsonic/OpenSubsonic** server in the client, enter the
+Lastbridge public URL, your local username, and the generated client password.
+Link Last.fm through the browser first. Browser passwords do not work in clients.
+Client connection, search, and browsing are the review targets for this iteration;
+playback buttons may be disabled because streaming/download roles are still false.
+
+Implemented read endpoints support XML/JSON, GET/form POST, and `.view` aliases:
+
+- Public `getOpenSubsonicExtensions`: `apiKeyAuthentication` and `formPost` v1.
+- Authenticated `ping`, `getLicense`, and the caller's own `getUser` profile.
+  Administrative account management stays in the browser.
+- `search3` (tag results), `search2` (folder-style album results), `getSong`,
+  `getAlbum`, `getArtist`, `getMusicDirectory`, and `getCoverArt`.
+- Saved-library enumeration: `getMusicFolders`, `getArtists`, `getIndexes`,
+  `getAlbumList`/`getAlbumList2`, `getGenres`, `getStarred`/`getStarred2`,
+  `getPlaylists`, and `getScanStatus`. These return an empty library until saving
+  and playlist features arrive. `getPlaylist` returns not-found.
+
+An empty/whitespace search query (also the literal `""` used by some clients)
+returns the user's saved library. A nonempty query searches anonymous YouTube
+Music metadata, even with an empty saved library. Searching does not save or
+download tracks. Song results include official catalog audio; ordinary music
+videos and unavailable tracks are excluded. This is interactive search, not
+automatic matching of a requested recording to one result.
+
+Each result type has independent count/offset pagination. Counts are 0–100;
+remote discovery is capped at the provider's first 100 candidates per type.
+Offsets beyond that window return an empty page. Short-lived per-user search
+snapshots preserve ordering for 60 seconds; at most 32 snapshots are held in RAM.
+Queries are not persisted. This cap is not a promise of exhaustive catalog search.
+
+Artist pages currently show the provider's initial albums/singles sections, not
+an exhaustive discography. Album browsing hydrates its available tracks (at most
+1,000), preserving their positions when an unavailable track is omitted. Search
+album counts/durations are initially zero where unknown; opening the album fills
+them. The required album `created` field is its first local metadata insertion,
+not its release date. Track bitrate/codec/size fields remain absent until actual
+audio resolution; metadata does not establish sound quality.
+
+Public artist/album/song metadata is shared internally. Stable IDs derive from
+provider identity, survive restart, and do not contain expiring stream URLs.
+Any linked user can retrieve an already-known public catalog ID; this does not
+grant membership in anybody else's saved library. Missing/wrong-type IDs return
+70. Account/profile access across users returns 50, including for browser admins.
+
+Provider requests run in disposable subprocesses with a 30-second deadline, two
+concurrent workers, a one-second admission wait, and an 8 MiB response limit.
+Failures return a fixed protocol error without dependency output or upstream
+URLs. Previously hydrated metadata remains browsable during provider outages;
+current hydrated detail pages are reused without automatic refresh. Search
+snapshots expire, but persistent catalog metadata has no eviction policy yet.
+
+Artwork is fetched only after authentication, from allowlisted HTTPS Google image
+hosts, without redirects, client credentials, or returned upstream URLs. Responses
+are limited to 2 MiB and JPEG/PNG/WebP media types. The `size` parameter is accepted
+(up to 4,096) but advisory: the existing provider thumbnail is returned unchanged.
+Images are not persistently cached in this iteration.
+
+For manual review in **Amperfy and Feishin**:
+
+1. Connect using the generated credential; confirm an empty saved library syncs.
+2. Search Daft Punk — Instant Crush, Joji — PIXELATED KISSES, and OTOY — Судоми.
+3. Open a song's album and artist; verify titles, relationships and artwork.
+4. Repeat with a second linked user; neither search should populate saved music.
+5. Restart and reopen previously visited items; report client/version and any
+   failed operation. Playback and favorite changes are outside this review.
+
+The mapping follows the [OpenSubsonic search contract](https://opensubsonic.netlify.app/docs/endpoints/search3/)
+and [public extension discovery requirement](https://opensubsonic.netlify.app/docs/endpoints/getopensubsonicextensions/),
+using [ytmusicapi browsing](https://ytmusicapi.readthedocs.io/en/stable/reference/browsing.html).
+Automated protocol checks and real provider checks do not substitute for actual
+client/device verification.
 
 ## YouTube feasibility probe
 
@@ -147,7 +223,8 @@ and repeat the probe on the deployment server's connection before deployment.
 For samples, install the **FFmpeg and ffprobe binaries** on the host. The resolver
 also uses Node.js 22+ by default; Deno is selectable with `--js-runtime deno`.
 These binaries and the optional probe packages are not in the service's Docker
-image. The service's runtime dependencies are unchanged.
+image. The service now includes ytmusicapi for metadata; audio extraction remains
+optional and outside the runtime image.
 
 The default player client is `visionos`, which delivered all three test samples
 on this machine. `--player-client default` tests yt-dlp's own client selection;
@@ -236,7 +313,8 @@ and runtime stages share the same updated base for native-library compatibility.
 Publishing is loopback-only by default. Set `LASTBRIDGE_HOST=0.0.0.0` in `.env` if
 you need LAN access through your existing network setup. Container-internal
 binding remains `0.0.0.0:5274`; `LASTBRIDGE_PORT` changes only the published port.
-Account pages are available; music catalog and playback are not yet implemented.
+Account pages and catalog browsing are available; audio playback is not yet
+implemented.
 
 Bootstrap or recover the container's administrator with the same hidden prompts:
 
@@ -272,12 +350,14 @@ Trivy 0.76.0 scans on 2026-10-28, using the same vulnerability database updated 
 | Previous agent's two-stage image with Debian 12 updates | 2 | 59 |
 | Iteration 1 Python 3.14.10 / Debian 13 runtime image | 0 | 44 |
 | Iteration 3 runtime, including cryptography | 0 | 44 |
+| Iteration 4 runtime, including ytmusicapi | 0 | 44 |
 
 The remaining 44 high findings correspond to eight distinct CVEs across Debian
 packages, with no fixed versions listed by this database. Lower-severity findings
 also remain (58 medium, 61 low, one unknown). No vulnerabilities were reported for
-the installed Python application dependencies, including the iteration 3
-cryptography addition. That scan reused the same database for comparison. This is a dated scan result, not
+the installed Python application dependencies, including cryptography and the
+iteration 4 metadata dependencies. These scans reused the same database for
+comparison. This is a dated scan result, not
 a guarantee of safety or a count of remotely exploitable application bugs. Other
 scanners can group findings or assign severity differently.
 
@@ -306,6 +386,8 @@ docker compose config --quiet
 Tests use temporary storage and do not contact providers. They cover lifecycle,
 configuration, account/session isolation, CSRF and callback replay protection,
 credential encryption/recovery, protocol authentication, credential-safe logging,
+catalog relationships and restart, migration from v1, XML/JSON mapping, search
+pagination/library separation, artwork restrictions and metadata worker limits,
 recording/version matching, format
 selection, worker/child deadlines, and partial-file cleanup. A synthetic audio
 test uses loopback HTTP and the real media tools when installed; it explicitly
@@ -345,3 +427,19 @@ The rebuilt image passed a disposable-container ASGI smoke test for bootstrap,
 browser sign-in, encrypted synthetic linking state, protocol ping, and readiness
 on Python 3.14.10 as UID 10001. This was not a live Last.fm exchange.
 Live Last.fm linking still requires local application keys and browser review.
+
+Iteration 4, 2026-10-28: catalog persistence/migration, public extension discovery,
+private profile access, remote search, song/album/artist and folder browsing,
+and authenticated artwork are implemented. All 97 tests pass in 20.73 seconds,
+with the same Starlette warning; lint, formatting, diff checks and Compose
+configuration pass. The runtime image builds and its disposable fixture-based
+ASGI catalog smoke test passes as UID 10001 on Python 3.14.10/ytmusicapi 1.12.3.
+The updated image scan reports zero Python dependency findings; OS counts remain
+0 critical, 44 high, 58 medium, 61 low and one unknown using the same database.
+
+Live anonymous metadata checks through the new worker succeeded for all three
+agreed queries. First song results resolved to Random Access Memories (13 tracks),
+Piss In The Wind (21 tracks), and Судоми (one track), with artist release pages
+and JPEG artwork. These checks used a disposable database and fetched no audio.
+Actual Amperfy/Feishin connection, synchronization, search and browsing remain
+pending manual review. No client playback or live Last.fm linking is claimed.

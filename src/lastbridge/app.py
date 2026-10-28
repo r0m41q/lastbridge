@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from lastbridge.accounts import Accounts
+from lastbridge.catalog import Catalog
 from lastbridge.config import Settings
 from lastbridge.lastfm import Lastfm
 from lastbridge.subsonic import router as subsonic_router
@@ -44,6 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.accounts = await run_in_threadpool(
                 Accounts, config.data_dir
             )
+            app.state.catalog = Catalog(app.state.accounts)
             app.state.lastfm = Lastfm(config.lastfm_credentials_file)
             app.state.password_limit = asyncio.Semaphore(2)
         except Exception:
