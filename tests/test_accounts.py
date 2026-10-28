@@ -106,7 +106,7 @@ def test_migration_restart_encryption_and_recovery(tmp_path):
     assert store.path.stat().st_mode & 0o777 == 0o600
     assert (tmp_path / "credentials.key").stat().st_mode & 0o777 == 0o600
     with store.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
     store.reset_password("admin", "replacement browser password")
     assert store.session(token) is None
     assert store.client_user({"apiKey": secret}) is None
@@ -131,7 +131,7 @@ def test_missing_or_wrong_key_does_not_silently_replace_credentials(tmp_path):
 def test_newer_database_refused(tmp_path):
     store = Accounts(tmp_path)
     with store.transaction() as connection:
-        connection.execute("PRAGMA user_version=3")
+        connection.execute("PRAGMA user_version=4")
     with pytest.raises(RuntimeError, match="newer"):
         Accounts(tmp_path)
 

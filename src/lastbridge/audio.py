@@ -99,7 +99,7 @@ class AudioResponse(FileResponse):
     def __init__(self, cache, key, entry, download=False):
         extension, media_type = RENDITIONS[entry["policy"]]
         super().__init__(
-            cache.directory / f"{key}.{extension}",
+            cache.path(key, entry),
             media_type=media_type,
             filename=f"{key}.{extension}",
             content_disposition_type="attachment" if download else "inline",
@@ -119,7 +119,8 @@ class AudioCache:
     """Single-process cache. Manifests commit completed files across restarts.
 
     Each acquisition reserves two file allowances (source and possible remux);
-    reservations plus completed audio never exceed the configured byte budget.
+    reservations plus completed temporary audio stay within the cache budget.
+    Permanently retained files have no total quota and stay outside the budget.
     A request holds its lease from acquisition through the last response byte.
     """
 
@@ -131,6 +132,8 @@ class AudioCache:
         reserve=256 * 1024 * 1024,
         policy="aac",
         provider=None,
+        saved_directory=None,
+        pins=(),
     ):
         self.directory = directory
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -150,54 +153,114 @@ class AudioCache:
         self.leases = Counter()
         self.reserved = 0
         self.closed = False
+        self.pins = set(pins)
+        self.saved_directory = saved_directory
+        if saved_directory is not None:
+            saved_directory.mkdir(parents=True, exist_ok=True)
+            if saved_directory.stat().st_dev != directory.stat().st_dev:
+                self.owner.close()
+                raise RuntimeError("Audio storage must share a filesystem")
         self.incoming = directory / ".incoming"
         try:
             # Only our private staging tree is disposable. Never touch saved/.
             shutil.rmtree(self.incoming, ignore_errors=True)
             self.incoming.mkdir()
-            for path in directory.glob("*.json"):
-                key = path.stem
-                if not KEY.fullmatch(key):
-                    continue
-                try:
-                    entry = json.loads(path.read_text())
-                    policy = key.rsplit("-", 1)[1]
-                    extension = RENDITIONS[policy][0]
-                    size = (directory / f"{key}.{extension}").stat().st_size
-                    if (
-                        entry["policy"] != policy
-                        or not 0 < entry["size"] == size <= self.maximum
-                        or not isinstance(entry["used"], (int, float))
-                        or not math.isfinite(entry["used"])
-                    ):
-                        raise ValueError
-                    self.entries[key] = entry
-                except OSError, ValueError, TypeError, KeyError:
-                    path.unlink(missing_ok=True)
-            # An uncommitted data file is never considered a complete entry.
-            for extension in ("m4a", "webm"):
-                for path in directory.glob(f"*.{extension}"):
-                    if (
-                        KEY.fullmatch(path.stem)
-                        and path.stem not in self.entries
-                    ):
-                        path.unlink()
+            roots = [(directory, False)]
+            if saved_directory is not None:
+                roots.append((saved_directory, True))
+            for root, saved in roots:
+                self.restore(root, saved)
+            if self.saved_directory is not None:
+                for key in self.pins & self.entries.keys():
+                    self.relocate(key, True)
+            self.cleanup_aliases()
             self.trim(0)
         except BaseException:
             self.owner.close()
             raise
+
+    def path(self, key, entry):
+        root = self.saved_directory if entry.get("saved") else self.directory
+        return root / f"{key}.{RENDITIONS[entry['policy']][0]}"
+
+    def restore(self, directory, saved):
+        for path in directory.glob("*.json"):
+            key = path.stem
+            if not KEY.fullmatch(key):
+                continue
+            try:
+                entry = json.loads(path.read_text())
+                policy = key.rsplit("-", 1)[1]
+                extension = RENDITIONS[policy][0]
+                size = (directory / f"{key}.{extension}").stat().st_size
+                if (
+                    entry["policy"] != policy
+                    or not 0 < entry["size"] == size
+                    or (not saved and size > self.maximum)
+                    or not isinstance(entry["used"], (int, float))
+                    or not math.isfinite(entry["used"])
+                ):
+                    raise ValueError
+                entry["saved"] = saved
+                self.entries[key] = entry
+            except FileNotFoundError:
+                # Intent remains in SQLite and can reacquire missing bytes.
+                path.unlink(missing_ok=True)
+            except OSError, ValueError, TypeError, KeyError:
+                if saved:
+                    # Never silently delete damaged permanently saved music.
+                    raise RuntimeError(
+                        "Saved audio needs repair from backup"
+                    ) from None
+                path.unlink(missing_ok=True)
+
+    def cleanup_aliases(self, only=None):
+        # Promotion/demotion uses hard links so a response constructed before
+        # the move still has its path until its last lease ends. On restart no
+        # leases survive; committed manifests choose the authoritative copy.
+        roots = [self.directory]
+        if self.saved_directory is not None:
+            roots.append(self.saved_directory)
+        for root in roots:
+            for extension in ("m4a", "webm"):
+                paths = (
+                    [root / f"{only}.{extension}"]
+                    if only
+                    else root.glob(f"*.{extension}")
+                )
+                for path in paths:
+                    if not path.exists():
+                        continue
+                    key = path.stem
+                    if not KEY.fullmatch(key) or (only and key != only):
+                        continue
+                    entry = self.entries.get(key)
+                    if not self.leases[key] and (
+                        not entry or path != self.path(key, entry)
+                    ):
+                        (root / f"{key}.json").unlink(missing_ok=True)
+                        path.unlink(missing_ok=True)
 
     def trim(self, allowance):
         candidates = sorted(
             self.entries, key=lambda k: self.entries[k]["used"]
         )
         while (
-            sum(e["size"] for e in self.entries.values())
+            sum(e["size"] for e in self.entries.values() if not e.get("saved"))
             + self.reserved
             + allowance
             > self.budget
         ):
-            key = next((k for k in candidates if not self.leases[k]), None)
+            key = next(
+                (
+                    k
+                    for k in candidates
+                    if not self.leases[k]
+                    and k not in self.pins
+                    and not self.entries[k].get("saved")
+                ),
+                None,
+            )
             if key is None:
                 raise CatalogError(0, "Audio cache busy; retry shortly")
             candidates.remove(key)
@@ -210,12 +273,54 @@ class AudioCache:
     def manifest(self, key, entry):
         # Called inside the cache lock. A crash leaves old or new complete
         # metadata; staging is discarded on the next startup.
-        temporary = self.incoming / f"{key}.json"
+        root = self.saved_directory if entry.get("saved") else self.directory
+        temporary = root / f".{key}.json.tmp"
         with temporary.open("w") as output:
             json.dump(entry, output)
             output.flush()
             os.fsync(output.fileno())
-        temporary.replace(self.directory / f"{key}.json")
+        temporary.replace(root / f"{key}.json")
+
+    def relocate(self, key, saved):
+        entry = self.entries[key]
+        target = dict(entry, saved=saved)
+        source, destination = self.path(key, entry), self.path(key, target)
+        if source == destination:
+            return
+        # Both directories share a filesystem. Linking preserves bytes and
+        # keeps any old response paths alive without duplicating audio data.
+        if destination.exists():
+            if not os.path.samefile(source, destination):
+                destination.unlink()
+        if not destination.exists():
+            os.link(source, destination)
+        self.manifest(key, target)
+        self.entries[key] = target
+        # Delete the old commit marker before deleting the old data path.
+        source.with_suffix(".json").unlink(missing_ok=True)
+        self.cleanup_aliases(key)
+
+    async def update_pins(self, keys):
+        # Set synchronously before the first await: library transactions and
+        # cache eviction run on this event loop and cannot see a stale pin set.
+        self.pins = set(keys)
+        async with self.lock:
+            for key, entry in list(self.entries.items()):
+                if (
+                    entry.get("saved")
+                    and key not in self.pins
+                    and not self.leases[key]
+                ):
+                    with contextlib.suppress(OSError):
+                        self.relocate(key, False)
+            self.trim(0)
+
+    async def retain(self, key):
+        async with self.lock:
+            if key in self.pins:
+                self.relocate(key, True)
+                return True
+            return False
 
     async def acquire(self, source):
         if not VIDEO_ID.fullmatch(source):
@@ -227,17 +332,18 @@ class AudioCache:
                     raise CatalogError(0, "Audio cache is shutting down")
                 entry = self.entries.get(key)
                 if entry:
-                    extension = RENDITIONS[self.policy][0]
-                    path = self.directory / f"{key}.{extension}"
+                    path = self.path(key, entry)
                     if (
                         not path.is_file()
                         or path.stat().st_size != entry["size"]
                     ):
+                        if entry.get("saved") and path.exists():
+                            raise CatalogError(
+                                0, "Saved audio needs repair from backup"
+                            )
                         del self.entries[key]
                         path.unlink(missing_ok=True)
-                        (self.directory / f"{key}.json").unlink(
-                            missing_ok=True
-                        )
+                        path.with_suffix(".json").unlink(missing_ok=True)
                         entry = None
                 if not entry and key not in self.jobs:
                     if len(self.jobs) >= 2:
@@ -267,7 +373,10 @@ class AudioCache:
                 async with self.lock:
                     entry = self.entries[key]
                     entry["used"] = time.time()
-                    self.manifest(key, entry)
+                    # This file already has a commit marker. A full disk must
+                    # not prevent playback just because its LRU touch failed.
+                    with contextlib.suppress(OSError):
+                        self.manifest(key, entry)
                 return key, dict(entry)
             except BaseException:
                 with anyio.CancelScope(shield=True):
@@ -333,6 +442,13 @@ class AudioCache:
             self.leases[key] -= 1
             if not self.leases[key]:
                 del self.leases[key]
+                entry = self.entries.get(key)
+                if entry and entry.get("saved") and key not in self.pins:
+                    with contextlib.suppress(OSError):
+                        self.relocate(key, False)
+                        self.trim(0)
+                with contextlib.suppress(OSError):
+                    self.cleanup_aliases(key)
 
     async def close(self):
         self.closed = True

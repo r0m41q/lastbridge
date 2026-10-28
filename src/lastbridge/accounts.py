@@ -94,7 +94,7 @@ class Accounts:
         self.path.chmod(0o600)
         with self.transaction() as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 2:
+            if version > 3:
                 raise RuntimeError("Database is newer than this application")
             if version == 0:
                 for statement in SCHEMA:
@@ -114,6 +114,34 @@ class Accounts:
                     "NOT NULL, UNIQUE(kind,source))"
                 )
                 connection.execute("PRAGMA user_version=2")
+            if version < 3:
+                connection.execute(
+                    "ALTER TABLE users ADD COLUMN library_changed "
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
+                connection.execute(
+                    "CREATE TABLE favorites (user_id INTEGER NOT NULL "
+                    "REFERENCES users(id) ON DELETE CASCADE, item_id TEXT "
+                    "NOT NULL REFERENCES catalog(id), starred TEXT NOT NULL, "
+                    "PRIMARY KEY(user_id,item_id))"
+                )
+                connection.execute(
+                    "CREATE TABLE favorite_tracks (user_id INTEGER NOT NULL, "
+                    "favorite_id TEXT NOT NULL, song_id TEXT NOT NULL "
+                    "REFERENCES catalog(id), "
+                    "PRIMARY KEY(user_id,favorite_id,song_id), "
+                    "FOREIGN KEY(user_id,favorite_id) REFERENCES "
+                    "favorites(user_id,item_id) ON DELETE CASCADE)"
+                )
+                connection.execute(
+                    "CREATE TABLE save_jobs (source TEXT NOT NULL, policy "
+                    "TEXT NOT NULL CHECK(policy IN ('aac','opus')), state "
+                    "TEXT NOT NULL CHECK(state IN "
+                    "('pending','running','failed','complete')), attempts "
+                    "INTEGER NOT NULL DEFAULT 0, error TEXT, next_attempt "
+                    "REAL NOT NULL DEFAULT 0, PRIMARY KEY(source,policy))"
+                )
+                connection.execute("PRAGMA user_version=3")
             check = connection.execute(
                 "SELECT value FROM credential_check"
             ).fetchone()[0]

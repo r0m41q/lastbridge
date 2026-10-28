@@ -1,3 +1,4 @@
+import random
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from fastapi import APIRouter, HTTPException, Request
@@ -85,7 +86,24 @@ def directory_album(album):
 
 async def dispatch(request, method, values, user):
     catalog = request.app.state.catalog
+    library = request.app.state.library
+    user_id = user["id"]
     folder(values)
+    if method in ("star", "unstar"):
+        if request.method == "HEAD":
+            raise CatalogError(10, "Use GET or POST to change favorites")
+        targets = []
+        for name, kind in (
+            ("id", None),
+            ("albumId", "album"),
+            ("artistId", "artist"),
+        ):
+            for item_id in values.get(name, []):
+                if not item_id:
+                    raise CatalogError(10, f"Invalid parameter: {name}")
+                targets.append((item_id, kind))
+        await library.change(user_id, targets, method == "star")
+        return {}
     if method == "ping":
         return {}
     if method == "getLicense":
@@ -127,13 +145,31 @@ async def dispatch(request, method, values, user):
             }
         }
     if method == "getScanStatus":
-        return {"scanStatus": {"scanning": False, "count": 0}}
+        return {
+            "scanStatus": {
+                "scanning": False,
+                "count": len(library.collection(user_id)["song"]),
+            }
+        }
     if method in ("getArtists", "getIndexes"):
+        artists = library.collection(user_id)["artist"]
+        groups = {}
+        for artist in artists:
+            letter = artist["name"][:1].upper()
+            letter = letter if letter.isalpha() else "#"
+            groups.setdefault(letter, []).append(artist)
         return {
             "artists" if method == "getArtists" else "indexes": {
                 "ignoredArticles": "",
-                "index": [],
-                **({"lastModified": 0} if method == "getIndexes" else {}),
+                "index": [
+                    {"name": key, "artist": group}
+                    for key, group in sorted(groups.items())
+                ],
+                **(
+                    {"lastModified": user["library_changed"]}
+                    if method == "getIndexes"
+                    else {}
+                ),
             }
         }
     if method in ("getAlbumList", "getAlbumList2"):
@@ -151,26 +187,75 @@ async def dispatch(request, method, values, user):
             "byGenre",
         ):
             raise CatalogError(10, "Invalid album list type")
-        integer(values, "size", 10, 500)
-        integer(values, "offset", 0)
+        size = integer(values, "size", 10, 500)
+        offset = integer(values, "offset", 0)
+        albums = library.collection(user_id)["album"]
         if kind == "byYear":
-            integer(values, "fromYear", 0, 9999)
-            integer(values, "toYear", 9999, 9999)
+            start = integer(values, "fromYear", 0, 9999)
+            end = integer(values, "toYear", 9999, 9999)
+            albums = [
+                a
+                for a in albums
+                if min(start, end) <= a.get("year", -1) <= max(start, end)
+            ]
+            albums.sort(
+                key=lambda a: (a["year"], a["id"]), reverse=start > end
+            )
         if kind == "byGenre":
-            required(values, "genre")
+            genre = required(values, "genre")
+            albums = [
+                a
+                for a in albums
+                if a.get("genre", "").casefold() == genre.casefold()
+            ]
+        if kind == "starred":
+            albums = [a for a in albums if "starred" in a]
+            albums.sort(key=lambda a: (a["starred"], a["id"]), reverse=True)
+        elif kind == "newest":
+            # A user's save time determines newest, never another user's first
+            # insertion into the shared metadata catalog.
+            stars = library.stars(user_id)
+            saved_songs = library.collection(user_id)["song"]
+            albums.sort(
+                key=lambda a: (
+                    max(
+                        [stars.get(a["id"], "")]
+                        + [
+                            stars.get(s["id"], "")
+                            for s in saved_songs
+                            if s.get("albumId") == a["id"]
+                        ]
+                    ),
+                    a["id"],
+                ),
+                reverse=True,
+            )
+        elif kind == "alphabeticalByArtist":
+            albums.sort(
+                key=lambda a: (
+                    a.get("artist", "").casefold(),
+                    a["name"].casefold(),
+                    a["id"],
+                )
+            )
+        elif kind == "random":
+            random.shuffle(albums)
+        elif kind in ("recent", "frequent", "highest"):
+            # Playback history and ratings are separate iterations.
+            albums = []
+        albums = albums[offset: offset + size]
+        if method == "getAlbumList":
+            albums = [directory_album(a) for a in albums]
         return {
             "albumList2" if method.endswith("2") else "albumList": {
-                "album": []
+                "album": albums
             }
         }
     if method in ("getStarred", "getStarred2"):
-        return {
-            "starred2" if method.endswith("2") else "starred": {
-                "artist": [],
-                "album": [],
-                "song": [],
-            }
-        }
+        result = library.collection(user_id, starred_only=True)
+        if method == "getStarred":
+            result["album"] = [directory_album(a) for a in result["album"]]
+        return {"starred2" if method.endswith("2") else "starred": result}
     if method == "getGenres":
         return {"genres": {"genre": []}}
     if method == "getPlaylists":
@@ -191,7 +276,9 @@ async def dispatch(request, method, values, user):
         pages = {
             kind: (
                 integer(values, kind + "Offset", 0),
-                min(integer(values, kind + "Count", 20), 100),
+                min(
+                    integer(values, kind + "Count", 20), 100 if query else 500
+                ),
             )
             for kind in ("artist", "album", "song")
         }
@@ -205,6 +292,8 @@ async def dispatch(request, method, values, user):
         results = (
             await catalog.search(user["id"], query, kinds)
             if (query and kinds)
+            else library.collection(user_id)
+            if not query
             else {"artist": [], "album": [], "song": []}
         )
         result = {
@@ -213,17 +302,31 @@ async def dispatch(request, method, values, user):
         }
         if method == "search2":
             result["album"] = [directory_album(a) for a in result["album"]]
+        result = library.decorate(user_id, result)
         return {
             "searchResult2" if method == "search2" else "searchResult3": result
         }
     if method in ("getSong", "getAlbum", "getArtist"):
         kind = method[3:].lower()
-        return {kind: await catalog.detail(required(values, "id"), kind)}
+        return {
+            kind: library.decorate(
+                user_id, await catalog.detail(required(values, "id"), kind)
+            )
+        }
     if method == "getMusicDirectory":
         item_id = required(values, "id")
         if item_id == "1":
+            saved = library.collection(user_id)
             return {
-                "directory": {"id": "1", "name": "Saved library", "child": []}
+                "directory": {
+                    "id": "1",
+                    "name": "Saved library",
+                    "child": [
+                        dict(a, isDir=True, parent="1")
+                        for a in saved["artist"]
+                    ]
+                    + [s for s in saved["song"] if not s.get("artistId")],
+                }
             }
         stored = catalog.read(item_id)
         if stored["kind"] == "song":
@@ -239,7 +342,7 @@ async def dispatch(request, method, values, user):
                 "id": item_id,
                 "name": item["name"],
                 "parent": item.get("artistId", "1"),
-                "child": children,
+                "child": library.decorate(user_id, children),
             }
         }
     if method == "getCoverArt":
@@ -266,11 +369,16 @@ async def dispatch(request, method, values, user):
 
 @router.api_route("/rest/{method}", methods=["GET", "POST", "HEAD"])
 async def endpoint(request: Request, method: str):
+    method = method.removesuffix(".view")
     try:
-        values = await parameters(request)
+        values = await parameters(
+            request,
+            multiple=frozenset({"id", "albumId", "artistId"})
+            if method in ("star", "unstar")
+            else frozenset(),
+        )
     except HTTPException:
         return reply({}, 10, "Invalid request parameters")
-    method = method.removesuffix(".view")
     # The specification requires unauthenticated extension discovery. No user
     # state or upstream request is involved in this exception.
     if method == "getOpenSubsonicExtensions":

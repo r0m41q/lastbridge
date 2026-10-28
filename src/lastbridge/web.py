@@ -36,7 +36,7 @@ def form(action: str, csrf: str, label: str) -> str:
     )
 
 
-async def parameters(request: Request) -> dict[str, str]:
+async def parameters(request: Request, multiple=frozenset()) -> dict:
     pairs = list(request.query_params.multi_items())
     if request.method == "POST":
         if request.headers.get("content-type", "").split(";")[0] != (
@@ -46,21 +46,28 @@ async def parameters(request: Request) -> dict[str, str]:
         body = bytearray()
         async for chunk in request.stream():
             body.extend(chunk)
-            if len(body) > 4096:
+            if len(body) > (16384 if multiple else 4096):
                 raise HTTPException(413, "Form too large")
         try:
             pairs.extend(
                 parse_qsl(
-                    body.decode(), keep_blank_values=True, max_num_fields=32
+                    body.decode(),
+                    keep_blank_values=True,
+                    max_num_fields=128 if multiple else 32,
                 )
             )
         except ValueError, UnicodeError:
             raise HTTPException(400, "Invalid form") from None
     result = {}
+    if multiple and len(pairs) > 128:
+        raise HTTPException(400, "Too many parameters")
     for key, value in pairs:
-        if key in result or len(value) > 2048:
+        if (key in result and key not in multiple) or len(value) > 2048:
             raise HTTPException(400, "Duplicate or oversized parameter")
-        result[key] = value
+        if key in multiple:
+            result.setdefault(key, []).append(value)
+        else:
+            result[key] = value
     return result
 
 
@@ -161,6 +168,7 @@ async def account(request: Request):
     linked = user["link_status"] == "linked"
     body = f"<p>Signed in as {escape(user['username'])}.</p>"
     if linked:
+        body += '<p><a href="/library">Saved library and download jobs</a></p>'
         body += f"<p>Last.fm: {escape(user['lastfm_name'])} (linked).</p>"
     elif user["link_status"] == "relink":
         body += (
@@ -203,6 +211,54 @@ async def account(request: Request):
         )
     body += form("/logout", user["csrf"], "Sign out")
     return page("Your account", body)
+
+
+@router.get("/library")
+async def library_page(request: Request):
+    user = current_user(request)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+    library = request.app.state.library
+    downloads = library.downloads(user["id"])
+    body = (
+        '<p><a href="/">Your account</a></p>'
+        "<p>Song hearts save a recording; album hearts save the available "
+        "album tracks. Artist hearts are bookmarks. Your favorites stay "
+        "saved if a download fails. Unheart in your music app to release "
+        "your copy; other users keep theirs.</p>"
+    )
+    if downloads:
+        body += (
+            "<table><tr><th>Track</th><th>Download</th><th>Attempts</th></tr>"
+        )
+        for item in downloads:
+            state = "saved" if item["state"] == "complete" else item["state"]
+            body += (
+                f"<tr><td>{escape(item['title'])}</td><td>{escape(state)}"
+                f"{': ' + escape(item['error']) if item['error'] else ''}"
+                f"</td><td>{item['attempts']}</td></tr>"
+            )
+        body += "</table>"
+        body += form(
+            "/library/retry",
+            user["csrf"],
+            "Retry my pending and failed downloads",
+        )
+    else:
+        body += (
+            "<p>No saved recordings yet. Heart a song or album "
+            "in your music app.</p>"
+        )
+    return page("Saved library", body)
+
+
+@router.post("/library/retry")
+async def retry_downloads(request: Request):
+    user, _ = await protected_form(request)
+    if user["link_status"] != "linked":
+        raise HTTPException(403, "Link Last.fm first")
+    request.app.state.library.retry(user["id"])
+    return RedirectResponse("/library", status_code=303)
 
 
 @router.post("/logout")

@@ -14,6 +14,7 @@ from lastbridge.audio import AudioCache
 from lastbridge.catalog import Catalog
 from lastbridge.config import Settings
 from lastbridge.lastfm import Lastfm
+from lastbridge.library import Library
 from lastbridge.subsonic import router as subsonic_router
 from lastbridge.web import router as web_router
 
@@ -47,6 +48,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 Accounts, config.data_dir
             )
             app.state.catalog = Catalog(app.state.accounts)
+            app.state.library = Library(
+                app.state.accounts, app.state.catalog, config.audio_policy
+            )
             app.state.lastfm = Lastfm(
                 config.lastfm_api_key.get_secret_value(),
                 config.lastfm_api_secret.get_secret_value(),
@@ -64,9 +68,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 maximum=config.audio_file_max_bytes,
                 reserve=config.audio_free_reserve_bytes,
                 policy=config.audio_policy,
+                saved_directory=config.data_dir / "saved" / "audio",
+                pins=app.state.library.pins(),
             )
         except Exception:
             raise RuntimeError("Cannot initialize audio cache") from None
+
+        try:
+            await app.state.library.start(app.state.audio)
+        except BaseException:
+            await app.state.audio.close()
+            raise
 
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(15.0, connect=5.0),
@@ -82,7 +94,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 yield
             finally:
                 app.state.ready = False
-                await app.state.audio.close()
+                try:
+                    await app.state.library.close()
+                finally:
+                    await app.state.audio.close()
         logger.info("Lastbridge stopped")
 
     app = FastAPI(

@@ -3,10 +3,11 @@
 Last.fm discovery and a private saved library through existing OpenSubsonic music
 clients. Python service, with YouTube Music as the first music provider.
 
-**Current scope: accounts, Last.fm linking, catalog browsing, authenticated audio
-streaming/downloads with seeking, and a shared bounded cache.** Favorites and
-recommendations arrive in later iterations. Feishin browsing is user-confirmed;
-playback and iOS compatibility need the manual review described below.
+**Current scope: accounts, Last.fm linking, catalog browsing, audio playback,
+seeking/downloads, private favorites, and shared permanent audio retention.**
+Recommendations and scrobbling arrive in later iterations. The user confirmed
+Feishin browsing, playback, seeking, and downloading; Amperfy testing is deferred.
+Favorites need the manual review described below.
 
 ## Local development
 
@@ -120,8 +121,9 @@ authentication and form POST only; other extensions are not implemented yet.
 Last.fm linking, and 0 for unimplemented endpoints. Normal music access requires
 a linked account; administration remains accessible before linking.
 
-SQLite schema version 2 is created transactionally on first startup; version 1
-is upgraded automatically without changing accounts or credentials. Newer schema
+SQLite schema version 3 is created transactionally on first startup; versions 1
+and 2 are upgraded automatically without changing accounts, credentials or catalog
+identities. Back up the data volume before upgrading. Newer schema
 versions are refused. Browser passwords use salted scrypt; browser session tokens
 and callback state are stored as SHA-256 digests. The generated client credential
 and Last.fm session key use Fernet authenticated encryption. The database and
@@ -133,6 +135,12 @@ data volume can also read its key. Browser pages return no-store and
 same-origin referrer headers, escaped text, CSRF-protected forms, and HttpOnly
 session cookies; cookies
 use Secure when the configured public origin is HTTPS.
+
+To preserve downloaded favorites as well as membership, include `data/saved/`
+with its audio files and manifests in that stopped-volume backup. Restoring only
+SQLite and the credential key preserves save intent but requires reacquisition of
+missing audio from the provider. Older application versions cannot open schema 3;
+restore the matching pre-upgrade backup for a rollback.
 
 The implementation follows [Last.fm web authorization](https://www.last.fm/api/webauth)
 and the [OpenSubsonic authentication contract](https://opensubsonic.netlify.app/docs/api-reference/).
@@ -184,7 +192,8 @@ cookies, JavaScript runtime, global downloader configuration, or remote scripts.
 Local runs need `ffmpeg` and `ffprobe` on PATH; Docker provides them. Provider
 changes or a different deployment IP may still prevent acquisition.
 
-Audio lives in `data/cache/audio/`, separate from `data/saved/`. Completed files
+Temporary audio lives in `data/cache/audio/`; retained recordings live in
+`data/saved/audio/`. Completed files
 are published atomically with small manifests. Restart removes only this cache's
 private staging files and uncommitted audio, and reuses valid completed files.
 The cache's exclusive lock prevents a second process using the same audio tree.
@@ -201,12 +210,76 @@ Configuration (bytes; also forwarded by Compose):
 The cache reserves two file allowances per acquisition (source plus possible
 MP4 container remux), then evicts completed
 least-recently-used entries as needed. Active responses and pending listeners
-protect their files. Staging plus completed audio stays within the byte budget;
+protect their files. Staging plus completed temporary audio stays within the budget;
 small manifests/filesystem overhead are additional. A process-level file limit
 also bounds unknown-length downloads. If all candidates are active, or free disk
 is insufficient, new acquisition fails safely. Existing cached playback remains
-available. Permanent favorite/playlist pins arrive in iteration 6; this iteration
-creates no permanent saved audio. Phone offline downloads are independent.
+available. Saved audio is outside that temporary budget; its file-size and free
+disk limits still apply during acquisition. Phone offline downloads are independent.
+
+## Favorites and permanent downloads
+
+Heart a song in the client to add a private favorite immediately and queue a
+persistent save job. The matching album and artist become browsable in your
+saved library. Hearting an album first resolves its available tracks, then saves
+that track snapshot as one operation. Missing/provider-unavailable albums return
+an error without half-saving a batch. Album tracks enter the library without
+individually setting their hearts. An artist heart is a metadata bookmark and
+does not download an entire discography. A song heart inside a saved album is an
+independent retention reason. Local hearts do not change Last.fm loves.
+
+`star`/`unstar` support song/folder `id`, `albumId`, and `artistId`, including
+repeated parameters in GET/form POST. Batches validate before membership changes;
+repeating a heart preserves its original timestamp. Requests have a 128-parameter
+limit (including authentication) and a 16 KiB form limit. Duplicate authentication
+parameters remain invalid. `getStarred`/`getStarred2`, search, and detail responses
+show only the caller's heart timestamps; shared catalog documents contain none.
+These follow the [star](https://opensubsonic.netlify.app/docs/endpoints/star/),
+[unstar](https://opensubsonic.netlify.app/docs/endpoints/unstar/), and
+[getStarred2](https://opensubsonic.netlify.app/docs/endpoints/getstarred2/) contracts.
+
+Open **Saved library and download jobs** in your browser account (or `/library`)
+to see your pending, running, saved, and failed recordings. Reload to update the
+table. One background save runs at a time, sharing in-flight acquisition and
+completed audio with playback. Initial failure retries after 30 seconds, then
+120 seconds; the third failure waits for your retry action. A failure keeps the
+heart and library membership. The CSRF-protected retry button affects only jobs
+for your saved recordings. Interrupted running jobs resume after restart;
+completed files are reused. If SQLite itself cannot write, the worker waits for
+storage recovery; a new heart needs a successful database write to be accepted.
+
+Audio is shared by recording identity and configured rendition. Two users saving
+one recording consume one physical audio file. Favorite pins, including album
+track pins, prevent eviction. Removing a heart releases only that favorite's
+pins; another heart, an album, another user, or an active response can still keep
+the recording. After the last pin and active transfer are gone, audio returns to
+the LRU cache and becomes evictable; metadata IDs remain valid. Promotion/demotion
+uses hard links on the same data filesystem, preserving any active response's
+old path until completion. Keep cache and saved audio on the same filesystem;
+the existing Compose volume already does this. Cleanup blocked by a filesystem
+error is retried on reconciliation/restart without deleting retained music.
+
+There is no total saved-library quota. Low disk stops new acquisition while
+completed local playback remains usable. Size/manifest corruption in committed
+saved audio fails startup for repair from backup, preserving the damaged files;
+a missing saved file is queued for reacquisition. Changing the global audio
+policy queues the new rendition for existing favorites and releases old-policy
+copies to the cache; compare AAC/Opus before accumulating a large saved library.
+Downloaded playlists, per-user size accounting, and fuller admin controls remain
+later iterations.
+
+For this iteration's review, rebuild with `docker compose up -d --build`, then:
+
+1. In Feishin, heart a song and refresh Favorites/your library. Check its job on
+   `/library`; once saved, restart Lastbridge and play/seek/download it again.
+2. Heart an album and check that its available tracks enter your library. Heart
+   one song independently, then unheart the album: that song should remain.
+3. Save the same song from two accounts. Unheart it in one account and verify the
+   other still sees its own heart and can play it. Neither sees the other's
+   favorites or download table.
+
+Amperfy checks can wait until an iOS device is available. Recommendations, Last.fm
+imports and scrobbling are not part of this iteration.
 
 Host acquisition on 2026-10-28 verified all six complete renditions, with no
 10-second clipping. Initial download times were 1.9–3.3 seconds, before adding
@@ -260,8 +333,9 @@ Implemented read endpoints support XML/JSON, GET/form POST, and `.view` aliases:
   `getAlbum`, `getArtist`, `getMusicDirectory`, and `getCoverArt`.
 - Saved-library enumeration: `getMusicFolders`, `getArtists`, `getIndexes`,
   `getAlbumList`/`getAlbumList2`, `getGenres`, `getStarred`/`getStarred2`,
-  `getPlaylists`, and `getScanStatus`. These return an empty library until saving
-  and playlist features arrive. `getPlaylist` returns not-found.
+  `getPlaylists`, and `getScanStatus`. Saved songs and their parent albums/artists
+  populate these lists; genres and playlists remain empty for now. `getPlaylist`
+  returns not-found. `star`/`unstar` mutate the caller's private favorites.
 
 An empty/whitespace search query (also the literal `""` used by some clients)
 returns the user's saved library. A nonempty query searches anonymous YouTube
@@ -271,10 +345,11 @@ videos and unavailable tracks are excluded. This is interactive search, not
 automatic matching of a requested recording to one result.
 
 Each result type has independent count/offset pagination. Nonnegative counts
-up to 2,147,483,647 are accepted; requested page sizes above 100 are clamped to
-100, including Feishin's 500-item requests. Remote discovery is capped at the
-provider's first 100 candidates per type.
-Offsets beyond that window return an empty page. Short-lived per-user search
+up to 2,147,483,647 are accepted. Nonempty remote searches clamp pages to 100;
+empty-query saved-library sync accepts pages up to 500, with offsets across the
+whole library so Feishin can continue syncing beyond 500 saved tracks. Remote
+discovery is capped at the provider's first 100 candidates per type; remote
+offsets beyond that window return an empty page. Short-lived per-user search
 snapshots preserve ordering for 60 seconds; at most 32 snapshots are held in RAM.
 Queries are not persisted. This cap is not a promise of exhaustive catalog search.
 
@@ -440,7 +515,8 @@ Publishing is loopback-only by default. Set `LASTBRIDGE_HOST=0.0.0.0` in `.env` 
 you need LAN access through your existing network setup. Container-internal
 binding remains `0.0.0.0:5274`; `LASTBRIDGE_PORT` changes only the published port.
 Account pages, catalog browsing, audio playback, seeking, and downloads are
-available. Favorites and personalized recommendations are still pending.
+available, including favorites and permanent saves. Personalized recommendations
+are still pending.
 
 Bootstrap or recover the container's administrator with the same hidden prompts:
 
@@ -625,4 +701,17 @@ The existing 121-test suite plus 18 new playback tests pass (139 total). Real
 host and disposable container checks acquired full recordings for the three
 agreed songs in both codecs; client listening, iOS offline use, gapless playback,
 and delivery from the deployment connection remain manual acceptance checks.
-The service creates no permanent favorites, mixes, or scrobbles yet.
+The user subsequently confirmed Feishin playback, seeking and downloads. Amperfy
+testing is deferred. Permanent favorites follow in iteration 6; mixes and
+scrobbles remain future work.
+
+Iteration 6, 2026-10-29: private song/album/artist favorites, owned library
+enumeration, persistent save jobs/retries, shared audio pins and permanent storage.
+All 162 tests pass, including 23 new favorites/retention tests; lint, formatting,
+diff and Compose configuration checks pass. A disposable Docker run saved full
+AAC recordings for all three agreed songs, restarted the app, disabled provider
+access, verified byte-identical downloads and range seeks, and preserved a second
+user's retained file after the first user's unheart. The container used synthetic
+accounts, temporary storage and UID 10001; real Feishin favorites and Amperfy
+acceptance are still manual. No dependency or container media-tool changes in
+this iteration; the earlier security findings remain a historical audit.

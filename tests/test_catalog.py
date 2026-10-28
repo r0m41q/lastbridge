@@ -453,12 +453,16 @@ def test_migration_from_v1_preserves_accounts(tmp_path):
     store = Accounts(tmp_path)
     store.create_user("admin", "a sufficiently long password", bootstrap=True)
     with store.transaction() as connection:
+        connection.execute("DROP TABLE favorite_tracks")
+        connection.execute("DROP TABLE favorites")
+        connection.execute("DROP TABLE save_jobs")
+        connection.execute("ALTER TABLE users DROP COLUMN library_changed")
         connection.execute("DROP TABLE catalog")
         connection.execute("PRAGMA user_version=1")
     migrated = Accounts(tmp_path)
     assert migrated.user("admin")["admin"] == 1
     with migrated.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
         assert (
             connection.execute("SELECT count(*) FROM catalog").fetchone()[0]
             == 0

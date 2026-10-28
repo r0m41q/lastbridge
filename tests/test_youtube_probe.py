@@ -147,7 +147,7 @@ def test_worker_deadline_kills_child_processes(
     while True:
         try:
             state = proc_stat.read_text().split()[2]
-        except FileNotFoundError:
+        except FileNotFoundError, ProcessLookupError:
             break  # Already reaped, possibly between polling operations.
         if state == "Z":
             break
