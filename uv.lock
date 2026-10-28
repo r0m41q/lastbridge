@@ -345,6 +345,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "uvicorn" },
+    { name = "yt-dlp", extra = ["default"] },
     { name = "ytmusicapi" },
 ]
 
@@ -352,9 +353,6 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "ruff" },
-]
-probe = [
-    { name = "yt-dlp", extra = ["default"] },
 ]
 
 [package.metadata]
@@ -365,6 +363,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.12,<3" },
     { name = "pydantic-settings", specifier = ">=2.10,<3" },
     { name = "uvicorn", specifier = ">=0.35,<1" },
+    { name = "yt-dlp", extras = ["default"], specifier = ">=2026.10.1" },
     { name = "ytmusicapi", specifier = ">=1.12.3,<2" },
 ]
 
@@ -373,7 +372,7 @@ dev = [
     { name = "pytest", specifier = ">=8.4,<10" },
     { name = "ruff", specifier = ">=0.12,<1" },
 ]
-probe = [{ name = "yt-dlp", extras = ["default"], specifier = ">=2026.10.1" }]
+probe = []
 
 [[package]]
 name = "mutagen"

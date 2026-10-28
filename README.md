@@ -3,10 +3,10 @@
 Last.fm discovery and a private saved library through existing OpenSubsonic music
 clients. Python service, with YouTube Music as the first music provider.
 
-**Current scope: accounts, Last.fm linking, authenticated catalog search and
-browsing, artwork, health routes, and a developer-only YouTube probe.** Audio
-streaming, caching, favorites, and recommendations arrive in later iterations.
-Actual Amperfy/Feishin onboarding still needs manual verification.
+**Current scope: accounts, Last.fm linking, catalog browsing, authenticated audio
+streaming/downloads with seeking, and a shared bounded cache.** Favorites and
+recommendations arrive in later iterations. Feishin browsing is user-confirmed;
+playback and iOS compatibility need the manual review described below.
 
 ## Local development
 
@@ -140,15 +140,116 @@ Tests use a mocked provider exchange; **real Last.fm authorization has not been
 tested with live application keys**. For review, bootstrap an administrator,
 create a second account, link each to its own Last.fm account, restart the service,
 and verify each link remains associated with the correct local account. Catalog
-review instructions follow; playback belongs to the next iteration.
+and playback review instructions follow. The user has confirmed account linking
+and Feishin browsing; the agent has not accessed live Last.fm credentials.
+
+## Playback, seeking, and audio cache
+
+Rebuild the image and restart the client to enable playback:
+
+```sh
+docker compose up -d --build --force-recreate
+```
+
+Authenticated `stream` and `download` (including `.view` aliases) return original
+source audio. GET and form POST are supported; GET/HEAD support HTTP byte ranges,
+including suffix/multiple ranges, `If-Range`, and 416 for unsatisfiable ranges.
+Downloads use attachment filenames. No provider URL, cookie, or header reaches
+the client. Requests do not create favorites or count as listened/scrobbled plays.
+The endpoints follow the [stream](https://opensubsonic.netlify.app/docs/endpoints/stream/)
+and [download](https://opensubsonic.netlify.app/docs/endpoints/download/) contracts.
+
+First playback waits for the **complete track** to download and pass container,
+duration, and full decoding checks. Cached playback and seeking use the completed
+local file. Concurrent requests for the same recording/rendition share one job;
+a cancelled waiter does not cancel another listener's acquisition. At most two
+recordings download at once; excess requests get a retryable protocol error.
+Acquisition has a 180-second deadline and kills the worker process group on
+shutdown/timeout. Each new attempt resolves fresh URLs; an expired URL is never
+persisted. A failed transfer can be retried from scratch, without publishing its
+partial bytes. This implementation does not progressively stream incoming audio.
+
+`LASTBRIDGE_AUDIO_POLICY=aac` selects the best available AAC/M4A source, with no
+transcoding or upscaling. Explicit `opus` selects Opus/WebM for comparison; it
+requires client support. The policy applies equally to all users and networks.
+If that codec is unavailable, playback fails explicitly. Client `format` and
+`maxBitRate` are preferences and do not change this source policy. No transcoding
+or transcode-offset extension is advertised; seek with HTTP Range instead of
+`timeOffset`. Leave client transcoding disabled during review.
+
+The runtime includes locked yt-dlp and minimal FFmpeg/ffprobe binaries built
+from Debian-authenticated FFmpeg 7.1.5 source. Anonymous `visionos`
+extraction is the currently verified path. It uses no YouTube login, browser
+cookies, JavaScript runtime, global downloader configuration, or remote scripts.
+Local runs need `ffmpeg` and `ffprobe` on PATH; Docker provides them. Provider
+changes or a different deployment IP may still prevent acquisition.
+
+Audio lives in `data/cache/audio/`, separate from `data/saved/`. Completed files
+are published atomically with small manifests. Restart removes only this cache's
+private staging files and uncommitted audio, and reuses valid completed files.
+The cache's exclusive lock prevents a second process using the same audio tree.
+Run one application worker. Catalog IDs and relationships survive audio eviction.
+
+Configuration (bytes; also forwarded by Compose):
+
+| Variable | Default | Meaning |
+| --- | ---: | --- |
+| `LASTBRIDGE_AUDIO_CACHE_BYTES` | 1,000,000,000 | Shared audio budget, about 1 GB |
+| `LASTBRIDGE_AUDIO_FILE_MAX_BYTES` | 67,108,864 | Maximum recording, clamped to half the cache budget |
+| `LASTBRIDGE_AUDIO_FREE_RESERVE_BYTES` | 268,435,456 | Free disk reserve before/while acquiring |
+
+The cache reserves two file allowances per acquisition (source plus possible
+MP4 container remux), then evicts completed
+least-recently-used entries as needed. Active responses and pending listeners
+protect their files. Staging plus completed audio stays within the byte budget;
+small manifests/filesystem overhead are additional. A process-level file limit
+also bounds unknown-length downloads. If all candidates are active, or free disk
+is insufficient, new acquisition fails safely. Existing cached playback remains
+available. Permanent favorite/playlist pins arrive in iteration 6; this iteration
+creates no permanent saved audio. Phone offline downloads are independent.
+
+Host acquisition on 2026-10-28 verified all six complete renditions, with no
+10-second clipping. Initial download times were 1.9–3.3 seconds, before adding
+full decode validation; these are observations, not deployment guarantees.
+
+| Recording | Duration | AAC/M4A | Opus/WebM |
+| --- | ---: | ---: | ---: |
+| Daft Punk — Instant Crush | 337.6 s | 5.46 MB, 129 kbps | 6.13 MB, 145 kbps |
+| Joji — PIXELATED KISSES | 110.4 s | 1.79 MB, 130 kbps | 1.78 MB, 129 kbps |
+| OTOY — Судоми | 146.1 s | 2.36 MB, 129 kbps | 2.59 MB, 142 kbps |
+
+AAC measured 44.1 kHz stereo; Opus 48 kHz stereo. These are file-average bitrates,
+not proof that one codec sounds better. Full host comparison files are ignored
+under `data/probe/playback/<video-id>/<aac|opus>/audio.<m4a|webm>`.
+
+The final minimal-tool container also passed all six real-provider streams,
+byte-range seeks, and byte-identical offline download responses using synthetic
+linked accounts, as UID 10001. First delivery took 2.59–4.43 seconds including
+remuxing and full decoding; cached seek plus download took 12–26 ms. This used an
+in-process ASGI client inside Docker, not Feishin/iOS or a network proxy.
+
+Manual review before accepting playback:
+
+1. Rebuild, reconnect Feishin, and play each agreed song from search or its album.
+   Check the full song plays, then seek forward/backward and switch tracks.
+2. Repeat with Amperfy on iOS; test its offline download, then play with networking
+   disabled. Record client versions, delay, and any errors.
+3. Start two clients on the same song, stop one, and confirm the other continues.
+   Restart Lastbridge and replay/seek a cached song.
+4. Listen to the local AAC/Opus comparison files. For client comparison, set
+   `LASTBRIDGE_AUDIO_POLICY=opus` locally and recreate the container. Return to
+   AAC if WebM support is insufficient. The default remains provisional.
+5. Test consecutive tracks on a continuous album and report whether a gap is
+   audible. Gapless playback depends on client behavior too; it is unverified.
+6. Repeat acquisition from the actual deployment connection if it differs.
 
 ## Catalog browsing and client review
 
 Select a generic **Subsonic/OpenSubsonic** server in the client, enter the
 Lastbridge public URL, your local username, and the generated client password.
 Link Last.fm through the browser first. Browser passwords do not work in clients.
-Client connection, search, and browsing are the review targets for this iteration;
-playback buttons may be disabled because streaming/download roles are still false.
+The caller's profile now enables streaming and downloading. Restart or reconnect
+the client after rebuilding so it reloads these capabilities.
 
 Implemented read endpoints support XML/JSON, GET/form POST, and `.view` aliases:
 
@@ -211,7 +312,7 @@ For manual review in **Amperfy and Feishin**:
 3. Open a song's album and artist; verify titles, relationships and artwork.
 4. Repeat with a second linked user; neither search should populate saved music.
 5. Restart and reopen previously visited items; report client/version and any
-   failed operation. Playback and favorite changes are outside this review.
+   failed operation. Playback review follows; favorite changes arrive later.
 
 The mapping follows the [OpenSubsonic search contract](https://opensubsonic.netlify.app/docs/endpoints/search3/)
 and [public extension discovery requirement](https://opensubsonic.netlify.app/docs/endpoints/getopensubsonicextensions/),
@@ -221,8 +322,9 @@ client/device verification.
 
 ## YouTube feasibility probe
 
-The probe runs independently of the service, with explicit network opt-in. Install
-its optional dependency group into the same local environment:
+The probe runs independently of the service, with explicit network opt-in. Its
+Python dependencies are now runtime dependencies; the empty `probe` group is kept
+so earlier setup commands continue to work in the same local environment:
 
 ```sh
 UV_PROJECT_ENVIRONMENT=venv venv/bin/uv sync --locked --group probe --inexact
@@ -239,9 +341,9 @@ and repeat the probe on the deployment server's connection before deployment.
 
 For samples, install the **FFmpeg and ffprobe binaries** on the host. The resolver
 also uses Node.js 22+ by default; Deno is selectable with `--js-runtime deno`.
-These binaries and the optional probe packages are not in the service's Docker
-image. The service now includes ytmusicapi for metadata; audio extraction remains
-optional and outside the runtime image.
+The service image now includes yt-dlp and minimal FFmpeg/ffprobe tools. It does
+not include Node or Deno; playback uses the verified `visionos` path without
+JavaScript. The developer probe may still request a local JavaScript runtime.
 
 The default player client is `visionos`, which delivered all three test samples
 on this machine. `--player-client default` tests yt-dlp's own client selection;
@@ -313,7 +415,14 @@ docker compose down
 
 The runtime image runs as UID 10001 with one worker and stores data in the
 `lastbridge-data` named volume. It contains the installed application and runtime
-dependencies, without pytest, Ruff, uv, or installed pip. Run development checks
+dependencies, without pytest, Ruff, uv, installed pip, or a C compiler. A separate
+media build stage compiles only file-based MOV/Matroska input, AAC/Opus decoding,
+MP4 remuxing without re-encoding, and null output for validation. It enables no network protocols or external media
+libraries. Corresponding Debian source archives, build configuration, and LGPL
+license are included under `/usr/local/share/lastbridge-media/`. The exact
+configure recipe is in Dockerfile; update the source version and rebuild when
+FFmpeg security updates are released. It is intentionally not a general-purpose
+FFmpeg installation. Run development checks
 locally using `venv/`. Last.fm application credentials are supplied through
 `LASTBRIDGE_LASTFM_API_KEY` and `LASTBRIDGE_LASTFM_API_SECRET` from the ignored
 `.env`; no credentials volume is required. Existing unused credential files or
@@ -330,8 +439,8 @@ and runtime stages share the same updated base for native-library compatibility.
 Publishing is loopback-only by default. Set `LASTBRIDGE_HOST=0.0.0.0` in `.env` if
 you need LAN access through your existing network setup. Container-internal
 binding remains `0.0.0.0:5274`; `LASTBRIDGE_PORT` changes only the published port.
-Account pages and catalog browsing are available; audio playback is not yet
-implemented.
+Account pages, catalog browsing, audio playback, seeking, and downloads are
+available. Favorites and personalized recommendations are still pending.
 
 Bootstrap or recover the container's administrator with the same hidden prompts:
 
@@ -368,14 +477,31 @@ Trivy 0.76.0 scans on 2026-10-28, using the same vulnerability database updated 
 | Iteration 1 Python 3.14.10 / Debian 13 runtime image | 0 | 44 |
 | Iteration 3 runtime, including cryptography | 0 | 44 |
 | Iteration 4 runtime, including ytmusicapi | 0 | 44 |
+| Iteration 5 minimal playback image, OS/Python inventory | 0 | 44 |
+| Iteration 5 FFmpeg source-version audit, separate | 0 | 16 |
 
-The remaining 44 high findings correspond to eight distinct CVEs across Debian
+The 44 high OS-inventory findings correspond to eight distinct CVEs across Debian
 packages, with no fixed versions listed by this database. Lower-severity findings
 also remain (58 medium, 61 low, one unknown). No vulnerabilities were reported for
 the installed Python application dependencies, including cryptography and the
 iteration 4 metadata dependencies. These scans reused the same database for
-comparison. This is a dated scan result, not
-a guarantee of safety or a count of remotely exploitable application bugs. Other
+comparison.
+
+The stock FFmpeg package trial pulled 292 OS packages and scanned at one critical
+and 207 high findings, including libxml2. The final minimal build keeps the prior
+87 OS packages and links its media tools only to libc/libm. Its uncompressed image
+size is about 188 MB, versus 630 MB for the stock-package trial.
+
+The OS/Python scan does **not** automatically inventory custom-built FFmpeg.
+A separate CycloneDX source-version check used Debian FFmpeg
+`7:7.1.5-0+deb13u1`, the exact patched source used by the build. It reported zero
+critical, 16 high, 20 medium, and three low findings, with no fixed versions
+listed. This conservatively checks the whole FFmpeg source package; applicability
+to the enabled AAC/Opus/container features has not been fully assessed. Those
+findings are additional to the OS inventory, and have not been suppressed.
+Update and rebuild the pinned FFmpeg source as fixes become available.
+
+These are dated scan results, not a guarantee of safety or a count of remotely exploitable application bugs. Other
 scanners can group findings or assign severity differently.
 
 For a repeatable local scan without mounting the Docker socket into the scanner:
@@ -490,3 +616,13 @@ folder responses. This reports an unknown format without inventing an audio
 codec, bitrate, suffix or file size. Cached metadata does not need deleting or
 refetching. The album page still needs a user retry after rebuilding. Empty home
 screens and unavailable playback remain expected until later iterations.
+
+
+Iteration 5, 2026-10-28: authenticated stream/download/HEAD, completed-file atomic
+cache, shared acquisition, two-worker admission, range seeking, restart cleanup,
+active response leases, disk/file limits, and configurable source AAC/Opus policy.
+The existing 121-test suite plus 18 new playback tests pass (139 total). Real
+host and disposable container checks acquired full recordings for the three
+agreed songs in both codecs; client listening, iOS offline use, gapless playback,
+and delivery from the deployment connection remain manual acceptance checks.
+The service creates no permanent favorites, mixes, or scrobbles yet.

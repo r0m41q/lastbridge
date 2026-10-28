@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from lastbridge.accounts import Accounts
+from lastbridge.audio import AudioCache
 from lastbridge.catalog import Catalog
 from lastbridge.config import Settings
 from lastbridge.lastfm import Lastfm
@@ -56,6 +57,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "Cannot initialize account storage/credentials"
             ) from None
 
+        try:
+            app.state.audio = AudioCache(
+                config.data_dir / "cache" / "audio",
+                budget=config.audio_cache_bytes,
+                maximum=config.audio_file_max_bytes,
+                reserve=config.audio_free_reserve_bytes,
+                policy=config.audio_policy,
+            )
+        except Exception:
+            raise RuntimeError("Cannot initialize audio cache") from None
+
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(15.0, connect=5.0),
             limits=httpx.Limits(
@@ -70,6 +82,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 yield
             finally:
                 app.state.ready = False
+                await app.state.audio.close()
         logger.info("Lastbridge stopped")
 
     app = FastAPI(

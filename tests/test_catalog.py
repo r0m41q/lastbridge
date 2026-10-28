@@ -304,7 +304,7 @@ def test_search_paging_snapshot_and_zero_counts(catalog_service):
         ("getCoverArt", {"id": "missing"}, 70),
         ("getCoverArt", {"id": "x", "size": 9000}, 10),
         ("getPlaylist", {"id": "missing"}, 70),
-        ("stream", {"id": "missing"}, 0),
+        ("stream", {"id": "missing"}, 70),
     ],
 )
 def test_errors(catalog_service, method, params, code):
@@ -359,7 +359,8 @@ def test_profile_roles_and_browsing_post(catalog_service):
     client, _, _, keys = catalog_service
     user = body(get(catalog_service, "getUser", username="admin"))["user"]
     assert user["folder"] == [1]
-    assert user["streamRole"] is False
+    assert user["streamRole"] is True
+    assert user["downloadRole"] is True
     assert user["scrobblingEnabled"] is False
     assert "lastfm_name" not in user
     assert (

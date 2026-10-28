@@ -16,15 +16,14 @@ dependencies = [
     "pydantic-settings>=2.10,<3",
     "uvicorn>=0.35,<1",
     "ytmusicapi>=1.12.3,<2",
+    "yt-dlp[default]>=2026.10.1",
 ]
 
 [project.scripts]
 lastbridge = "lastbridge.__main__:main"
 
 [dependency-groups]
-probe = [
-    "yt-dlp[default]>=2026.10.1",
-]
+probe = []
 dev = [
     "pytest>=8.4,<10",
     "ruff>=0.12,<1",

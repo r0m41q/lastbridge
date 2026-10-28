@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     )
     data_dir: Path = Path("data")
     public_url: str = "http://127.0.0.1:5274"
+    audio_cache_bytes: int = Field(default=1_000_000_000, ge=1_048_576)
+    audio_file_max_bytes: int = Field(default=67_108_864, ge=1_048_576)
+    audio_free_reserve_bytes: int = Field(default=268_435_456, ge=0)
+    audio_policy: Literal["aac", "opus"] = "aac"
     lastfm_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
     lastfm_api_secret: SecretStr = Field(default=SecretStr(""), repr=False)
 

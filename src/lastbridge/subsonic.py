@@ -106,18 +106,18 @@ async def dispatch(request, method, values, user):
                     for role in (
                         "admin",
                         "settings",
-                        "download",
                         "upload",
                         "playlist",
                         "comment",
                         "podcast",
-                        "stream",
                         "jukebox",
                         "share",
                         "video",
                     )
                 },
                 "coverArtRole": True,
+                "streamRole": True,
+                "downloadRole": True,
             }
         }
     if method == "getMusicFolders":
@@ -250,10 +250,21 @@ async def dispatch(request, method, values, user):
         )
         # The provider thumbnail is returned unchanged; size is advisory.
         return Response(data, media_type=media_type)
+    if method in ("stream", "download"):
+        song = catalog.read(required(values, "id"), "song")
+        # Preserve the configured source audio. Clients seek with HTTP Range;
+        # no transcoding or transcode-offset extension is advertised.
+        if method == "stream":
+            integer(values, "maxBitRate", 0)
+            if values.get("timeOffset", "0") not in ("0", "0.0"):
+                raise CatalogError(0, "Use HTTP Range to seek source audio")
+        return await request.app.state.audio.response(
+            song["source"], download=method == "download"
+        )
     raise CatalogError(0, "Endpoint not implemented")
 
 
-@router.api_route("/rest/{method}", methods=["GET", "POST"])
+@router.api_route("/rest/{method}", methods=["GET", "POST", "HEAD"])
 async def endpoint(request: Request, method: str):
     try:
         values = await parameters(request)
