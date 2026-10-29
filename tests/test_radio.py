@@ -307,7 +307,7 @@ def test_v5_upgrade_preserves_mixes_and_sync(radio_service):
     assert rows(service, "mixes") == before
     assert store.client_user({"apiKey": service[3]["admin"]})
     with store.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
 
 
 @pytest.mark.parametrize(

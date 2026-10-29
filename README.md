@@ -142,7 +142,7 @@ use Secure when the configured public origin is HTTPS.
 To preserve downloaded favorites and playlists as well as membership, include `data/saved/`
 with its audio files and manifests in that stopped-volume backup. Restoring only
 SQLite and the credential key preserves save intent but requires reacquisition of
-missing audio from the provider. Older application versions cannot open schema 8;
+missing audio from the provider. Older application versions cannot open schema 9;
 restore the matching pre-upgrade backup for a rollback.
 
 The implementation follows [Last.fm web authorization](https://www.last.fm/api/webauth)
@@ -364,7 +364,7 @@ the page shows up to 200 unmatched/removed records and the latest 100 reports.
 The database retains all deduplication records and import/removal intent; no
 history pruning or total metadata quota is implemented yet.
 
-For review, back up the stopped data volume before upgrading to schema 8, then
+For review, back up the stopped data volume before upgrading to schema 9, then
 rebuild with `docker compose up -d --build`. Upgrading automatically starts imports
 for configured linked accounts and may grow permanent storage. Check the sync
 page and pause imports there if needed.
@@ -526,7 +526,7 @@ acceptance in Feishin and iOS clients remains manual.
 For review:
 
 1. Back up the stopped complete data volume (database, `credentials.key`, saved
-   audio and manifests) before the schema 8 upgrade. Run
+   audio and manifests) before the schema 9 upgrade. Run
    `docker compose up -d --build` and reconnect Feishin to refresh permissions.
 2. Create a list in Feishin, add the agreed Daft Punk/Joji/OTOY recordings, change
    their order, rename it, remove an entry and reload. Check order after restart.
@@ -590,14 +590,58 @@ Ambiguous, unavailable and duplicate recordings are omitted. No unrelated cover
 or different version is substituted. Cached metadata is not proof of ongoing
 upstream availability; a track can become unavailable before actual playback.
 
-A single background worker refreshes daily, independently of the import and
-scrobble workers. Linking and client playlist requests never wait for generation.
+A single internal background worker refreshes mixes 24 hours after each
+successful refresh, including manual refreshes. There is no fixed local time
+or external cron service. Linking and client playlist requests never wait
+for generation. The worker runs independently of imports and scrobbles.
 Each refresh allows at most 40 new recording lookups and a 180-second total
 deadline, with bounded provider responses and a 250 ms gap after successful reads
 and lookups. Previously resolved entries can be reused; short lists are normal
 when matching is ambiguous or the budget is exhausted. Refreshes store metadata
 only and do **not** queue audio or permanently pin recommendations. Playback
 uses the usual temporary cache; hearts still queue permanent copies.
+
+Automatic mix generation pauses after seven days without meaningful account
+activity. Existing snapshots remain readable. A returning user's first successful
+playback, download, search, artist/album browse, top-song/radio request, favorite
+or playlist edit, or authenticated browser visit renews activity. Due work is then
+queued in the background without waiting in the client. Routine ping, artist-list,
+album-list, playlist-list and empty-search sync polling does not renew activity;
+HEAD, failed authentication and rejected requests do not count. The protocol
+cannot distinguish a human browse from a client that automatically issues the
+same artist/album/search requests, so this is an activity heuristic, not an
+online-presence detector. Server-generated work itself never renews activity.
+Activity is persisted at most once a minute per account and survives restarts.
+
+Defaults are configurable in the ignored local environment file, with Compose
+passing them into the container:
+
+```dotenv
+LASTBRIDGE_MIX_REFRESH_HOURS=24
+LASTBRIDGE_MIX_INACTIVE_DAYS=7
+```
+
+Both settings require positive whole numbers (maximum 8,760 hours and 3,650 days).
+Changing the refresh interval takes effect on restart relative to the previous
+successful completion, while queued manual work and failure retry deadlines are
+preserved. Restarts do not reactivate idle accounts or replay every missed day.
+Active overdue accounts get one current refresh; subsequent success advances the
+clock. Retry attempts also stop when activity expires. Ordinary user playlists,
+radio batches and the separate Last.fm loved-import/scrobble workers are outside
+this mix-refresh inactivity policy. Loved Tracks still follows matched loves
+and local hearts rather than a generated daily snapshot.
+
+Schema 9 adds only private activity timestamps. Existing mixes, favorites,
+playlists and credentials remain intact. Upgraded existing mix accounts wait for
+their next meaningful activity before resuming automatic generation; no historical
+online status is guessed. A new linked identity gets its initial generation.
+Back up the stopped whole data volume before upgrading; schema-8 code cannot open
+schema 9, so rollback requires the matching pre-upgrade backup.
+
+Admin-provided YouTube playlist links and globally shared chart snapshots remain
+planned with the importer. Each source will refresh once for everyone, independently
+of personal inactivity, without hardcoding a chart ID. They are not implemented
+by this personal-mix scheduling change.
 
 The three generated snapshots and taste profile publish together in one
 transaction. Last.fm/provider outages, deadlines, or an entirely unresolvable
@@ -608,8 +652,9 @@ Last.fm identity clears the old profile/snapshots, and in-flight old results
 cannot publish; saved local favorites remain as before. Revoked authorization
 pauses refreshes while existing playlists and cached playback remain available.
 
-Open `/mixes` from the account page to see counts, last successful refresh and
-errors, or request a refresh. Manual requests require browser session/CSRF and
+Open `/mixes` from the account page to see counts, the configured schedule,
+last successful refresh, next eligible refresh/retry and errors, or request
+a refresh. Manual requests require browser session/CSRF and
 have a five-minute cooldown. Refreshing does not rewrite a queue already loaded
 by a client. Custom client home-screen sections remain outside the standard API.
 
@@ -836,7 +881,7 @@ These are observations of current provider coverage, not a guarantee for other
 releases or future availability. Feishin's structured-lyrics parser was inspected;
 actual display and audible synchronization have not been verified by the agent.
 
-Manual review after backing up the stopped data volume (schema 8 upgrade) and
+Manual review after backing up the stopped data volume (schema 9 upgrade) and
 running `docker compose up -d --build`:
 
 1. Reconnect Feishin so it refreshes extension discovery. Prefer server lyrics

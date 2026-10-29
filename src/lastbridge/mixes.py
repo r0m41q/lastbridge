@@ -56,9 +56,23 @@ def date(stamp):
 
 
 class Mixes:
-    def __init__(self, accounts, catalog, library, lastfm, client):
+    def __init__(
+        self,
+        accounts,
+        catalog,
+        library,
+        lastfm,
+        client,
+        *,
+        refresh_interval=DAY,
+        inactive_ttl=7 * DAY,
+    ):
         self.accounts, self.catalog, self.library = accounts, catalog, library
         self.lastfm, self.client = lastfm, client
+        self.refresh_interval, self.inactive_ttl = (
+            refresh_interval,
+            inactive_ttl,
+        )
         self.task = None
         self.wake = asyncio.Event()
 
@@ -69,6 +83,16 @@ class Mixes:
             ).fetchone()
             if user is None or not user["lastfm_name"]:
                 return
+            previous = connection.execute(
+                "SELECT target FROM mixes WHERE user_id=?", (user_id,)
+            ).fetchone()
+            if not previous or previous[0] != user["lastfm_name"].casefold():
+                connection.execute(
+                    "INSERT INTO mix_activity VALUES(?,?) "
+                    "ON CONFLICT(user_id) "
+                    "DO UPDATE SET last_active=excluded.last_active",
+                    (user_id, time.time()),
+                )
             connection.execute(
                 "INSERT INTO mixes(user_id,target,created) VALUES(?,?,?) "
                 "ON CONFLICT(user_id) DO UPDATE SET target=excluded.target,"
@@ -79,8 +103,30 @@ class Mixes:
             )
         self.wake.set()
 
+    def touch(self, user_id):
+        """Persist meaningful use at most once a minute; wake overdue work."""
+        now = time.time()
+        with self.accounts.transaction() as connection:
+            changed = connection.execute(
+                "INSERT INTO mix_activity SELECT user_id,? FROM mixes "
+                "WHERE user_id=? ON CONFLICT(user_id) DO UPDATE "
+                "SET last_active=excluded.last_active "
+                "WHERE last_active<=?",
+                (now, user_id, now - 60),
+            ).rowcount
+        if changed:
+            self.wake.set()
+
     async def start(self):
         with self.accounts.transaction() as connection:
+            # Adopt interval changes without postponing queued manual work or
+            # changing an existing outage retry deadline.
+            connection.execute(
+                "UPDATE mixes SET next_attempt=updated+? "
+                "WHERE updated>0 AND running=0 AND error IS NULL "
+                "AND requested<=updated AND next_attempt>0",
+                (self.refresh_interval,),
+            )
             connection.execute(
                 "UPDATE mixes SET running=0,next_attempt=?,"
                 "error='Refresh interrupted; previous playlists "
@@ -129,6 +175,7 @@ class Mixes:
 
     def request(self, user_id):
         self.linked(user_id)
+        self.touch(user_id)
         now = time.time()
         with self.accounts.transaction() as connection:
             row = connection.execute(
@@ -150,7 +197,9 @@ class Mixes:
     def status(self, user_id):
         with self.accounts.connection() as connection:
             row = connection.execute(
-                "SELECT * FROM mixes WHERE user_id=?",
+                "SELECT m.*,COALESCE(a.last_active,0) AS last_active "
+                "FROM mixes m LEFT JOIN mix_activity a ON a.user_id=m.user_id "
+                "WHERE m.user_id=?",
                 (user_id,),
             ).fetchone()
         user = self.user(user_id)
@@ -338,11 +387,13 @@ class Mixes:
         with self.accounts.transaction() as connection:
             row = connection.execute(
                 "SELECT m.* FROM mixes m JOIN users u ON u.id=m.user_id "
+                "JOIN mix_activity a ON a.user_id=m.user_id "
                 "WHERE m.running=0 AND m.next_attempt<=? AND "
+                "a.last_active>? AND "
                 "u.link_status='linked' "
                 "AND u.lastfm_secret IS NOT NULL ORDER BY "
                 "m.next_attempt,m.user_id LIMIT 1",
-                (time.time(),),
+                (time.time(), time.time() - self.inactive_ttl),
             ).fetchone()
             if row is None:
                 return False
@@ -389,7 +440,7 @@ class Mixes:
                     "running=0,next_attempt=?,updated=?,error=NULL,"
                     "profile=?,snapshot=? WHERE user_id=?",
                     (
-                        time.time() + DAY,
+                        time.time() + self.refresh_interval,
                         time.time(),
                         json.dumps(profile),
                         json.dumps(snapshot),

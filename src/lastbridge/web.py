@@ -79,7 +79,10 @@ async def parameters(
 
 
 def current_user(request: Request):
-    return request.app.state.accounts.session(request.cookies.get(COOKIE, ""))
+    user = request.app.state.accounts.session(request.cookies.get(COOKIE, ""))
+    if user is not None and request.method == "GET":
+        request.app.state.mixes.touch(user["id"])
+    return user
 
 
 async def protected_form(request: Request):
@@ -88,6 +91,7 @@ async def protected_form(request: Request):
         raise HTTPException(401, "Sign in through /login")
     values = await parameters(request)
     check_csrf(request, values.get("csrf", ""), user["csrf"])
+    request.app.state.mixes.touch(user["id"])
     return user, values
 
 
@@ -408,11 +412,18 @@ async def mixes_page(request: Request):
         "similar tracks outside your known listening sample; new profiles "
         "get chart suggestions. Listen Again uses recent completed listening. "
         "Loved Tracks shows matched Last.fm loves still saved locally.</p>"
-        "<p>Generated mixes have up to 30 tracks, refresh daily, and keep "
+        "<p>Generated mixes have up to 30 tracks and keep "
         "their previous snapshot during outages. Initial generation may take "
         "up to three minutes. Unavailable or ambiguous matches are omitted. "
         "Loved Tracks follows the import and local hearts immediately. "
         "Reload this page for progress.</p>"
+    )
+    body += (
+        f"<p>Automatic refresh: every {mixes.refresh_interval // 3600} hours "
+        "after a successful refresh, including manual refreshes. Pauses after "
+        f"{mixes.inactive_ttl // 86400} days without activity. Returning "
+        "queues overdue work in the background; "
+        "existing mixes stay usable.</p>"
     )
     if status:
         from lastbridge.mixes import date
@@ -433,6 +444,11 @@ async def mixes_page(request: Request):
             )
         if status["error"]:
             body += f"<p>{escape(status['error'])}</p>"
+        if status["next_attempt"] and not status["running"]:
+            body += (
+                "<p>Next refresh or retry eligible at: "
+                f"{escape(date(status['next_attempt']))} (UTC).</p>"
+            )
         body += "<ul>"
         for item in mixes.playlists(user):
             body += (

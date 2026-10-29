@@ -421,6 +421,6 @@ def test_schema_six_upgrade_preserves_accounts_catalog_and_radio(
     assert migrated.client_user({"apiKey": service[3]["admin"]})
     assert service[1].state.catalog.read(song["id"])["document"] == song
     with migrated.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
         assert connection.execute("SELECT * FROM radio").fetchone()["seed_id"]
         assert not connection.execute("SELECT * FROM lyrics").fetchall()

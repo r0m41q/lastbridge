@@ -100,7 +100,7 @@ class Accounts:
         self.path.chmod(0o600)
         with self.transaction() as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 8:
+            if version > 9:
                 raise RuntimeError("Database is newer than this application")
             if version == 0:
                 for statement in SCHEMA:
@@ -165,6 +165,13 @@ class Accounts:
                 for statement in PLAYLIST_SCHEMA:
                     connection.execute(statement)
                 connection.execute("PRAGMA user_version=8")
+            if version < 9:
+                connection.execute(
+                    "CREATE TABLE mix_activity (user_id INTEGER PRIMARY KEY "
+                    "REFERENCES users(id) ON DELETE CASCADE, "
+                    "last_active REAL NOT NULL)"
+                )
+                connection.execute("PRAGMA user_version=9")
             check = connection.execute(
                 "SELECT value FROM credential_check"
             ).fetchone()[0]

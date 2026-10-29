@@ -110,6 +110,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     app.state.library,
                     app.state.lastfm,
                     client,
+                    refresh_interval=config.mix_refresh_hours * 3600,
+                    inactive_ttl=config.mix_inactive_days * 86400,
                 )
                 app.state.playlists = Playlists(
                     app.state.accounts,

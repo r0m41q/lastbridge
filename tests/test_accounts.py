@@ -95,6 +95,7 @@ def service(tmp_path, monkeypatch):
 
 
 def drop_playlist_tables(connection):
+    connection.execute("DROP TABLE mix_activity")
     connection.execute("DROP VIEW retained_tracks")
     connection.execute("DROP TABLE playlist_entries")
     connection.execute("DROP TABLE playlists")
@@ -138,7 +139,7 @@ def test_migration_restart_encryption_and_recovery(tmp_path):
     assert store.path.stat().st_mode & 0o777 == 0o600
     assert (tmp_path / "credentials.key").stat().st_mode & 0o777 == 0o600
     with store.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
     store.reset_password("admin", "replacement browser password")
     assert store.session(token) is None
     assert store.client_user({"apiKey": secret}) is None
@@ -163,7 +164,7 @@ def test_missing_or_wrong_key_does_not_silently_replace_credentials(tmp_path):
 def test_newer_database_refused(tmp_path):
     store = Accounts(tmp_path)
     with store.transaction() as connection:
-        connection.execute("PRAGMA user_version=9")
+        connection.execute("PRAGMA user_version=10")
     with pytest.raises(RuntimeError, match="newer"):
         Accounts(tmp_path)
 
