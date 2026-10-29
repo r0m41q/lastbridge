@@ -6,7 +6,7 @@ clients. Python service, with YouTube Music as the first music provider.
 **Current scope: accounts, Last.fm linking, catalog browsing, audio playback,
 seeking/downloads, private favorites, shared permanent audio retention,
 Last.fm scrobbling, resumable loved-track imports, personal mix playlists,
-and YouTube Music radio continuation.** The user confirmed
+YouTube Music radio continuation, and synchronized lyrics.** The user confirmed
 Feishin browsing, playback, seeking, and downloading; Amperfy testing is deferred.
 Favorites, Last.fm sync, and personal mixes have manual review steps below.
 
@@ -123,9 +123,9 @@ Last.fm linking, and 0 for unimplemented endpoints. Music clients require an
 initial link; revoked Last.fm authorization pauses delivery while preserving
 local playback. Administration remains accessible before linking.
 
-SQLite schema version 6 is created transactionally on first startup; versions 1,
-2, 3, 4 and 5 upgrade automatically without changing accounts, credentials or catalog
-identities. Back up the data volume before upgrading. Newer schema
+SQLite schema version 7 is created transactionally on first startup; versions
+1–6 upgrade automatically without changing accounts, credentials, catalog IDs,
+favorites, sync progress, mixes or radio snapshots. Back up the data volume before upgrading. Newer schema
 versions are refused. Browser passwords use salted scrypt; browser session tokens
 and callback state are stored as SHA-256 digests. The generated client credential
 and Last.fm session key use Fernet authenticated encryption. The database and
@@ -141,7 +141,7 @@ use Secure when the configured public origin is HTTPS.
 To preserve downloaded favorites as well as membership, include `data/saved/`
 with its audio files and manifests in that stopped-volume backup. Restoring only
 SQLite and the credential key preserves save intent but requires reacquisition of
-missing audio from the provider. Older application versions cannot open schema 6;
+missing audio from the provider. Older application versions cannot open schema 7;
 restore the matching pre-upgrade backup for a rollback.
 
 The implementation follows [Last.fm web authorization](https://www.last.fm/api/webauth)
@@ -363,7 +363,7 @@ the page shows up to 200 unmatched/removed records and the latest 100 reports.
 The database retains all deduplication records and import/removal intent; no
 history pruning or total metadata quota is implemented yet.
 
-For review, back up the stopped data volume before upgrading to schema 6, then
+For review, back up the stopped data volume before upgrading to schema 7, then
 rebuild with `docker compose up -d --build`. Upgrading automatically starts imports
 for configured linked accounts and may grow permanent storage. Check the sync
 page and pause imports there if needed.
@@ -595,6 +595,80 @@ Manual review before accepting playback:
    audible. Gapless playback depends on client behavior too; it is unverified.
 6. Repeat acquisition from the actual deployment connection if it differs.
 
+## Synchronized lyrics
+
+`getOpenSubsonicExtensions` advertises `songLyrics` version 1.
+Authenticated `getLyricsBySongId` accepts a catalog song `id`, using GET or form
+POST with XML or JSON responses. Timed lines use integer milliseconds; XML puts
+line text inside `<line start="...">text</line>`, while JSON uses `value`.
+The server prefers timed lines, returns plain text with `synced=false` when only
+plain lyrics are usable, and returns an empty `structuredLyrics` array for
+missing matches, instrumental tracks or provider failures. Playback is independent
+of lyric retrieval. Unknown/non-song IDs return error 70; missing IDs return 10.
+HEAD validates the ID without contacting the provider. The legacy artist/title
+`getLyrics` endpoint and word-level karaoke are not implemented.
+
+Lyrics come from [LRCLIB](https://lrclib.net/docs), without an API key, using its
+track-signature endpoint. Lastbridge sends public artist, title, album and
+duration metadata only. It checks all four returned fields, permitting Unicode
+case/whitespace normalization and at most two seconds of duration difference.
+Version qualifiers, punctuation and accents are retained; there is no fuzzy
+search or substitution of a studio recording for a live/remix version. Differences
+in credits, release names or provider spelling can therefore leave lyrics absent.
+Matching metadata is a safeguard, not proof of perfect community-authored timing.
+Language is `und` because the source does not supply a reliable language field.
+
+The LRC parser supports fractional timestamps, repeated timestamps, metadata tags
+and signed millisecond offsets. It applies offsets to timestamps and returns
+`offset=0`, orders lines by time, retains blank timed cues, rejects malformed or
+out-of-duration timing, and never derives timestamps from plain text. Malformed
+synchronized text can fall back to valid plain text for the matched recording.
+
+SQLite caches public structured results across users and restarts, separate from
+favorites/audio pins. Successful lyrics expire after seven days; missing or
+rejected matches after one day; transient failures after one minute. An expired
+positive result may be used on provider failure for up to 30 days from its last
+successful fetch. Changed song metadata invalidates its fingerprint. The cache
+retains at most 1,000 songs; it is outside the audio-cache byte budget. Responses
+are limited to 256 KiB, with bounded text and at most 2,000 expanded lines.
+
+Requests for the same song/metadata share work. At most four fetches may be
+pending, with one provider request at a time, a 250 ms gap and an eight-second
+fetch/queue deadline. HTTP 429/503 honors numeric or HTTP-date `Retry-After`
+server-wide, with a minimum one-minute cooldown; absent/invalid headers use one
+minute. Redirects are refused. A disconnected client does not cancel shared work;
+shutdown cancels and drains pending requests. No lyrics are fetched at startup,
+when generating mixes, or merely by streaming audio.
+
+Live host check on 2026-10-29 used anonymous YouTube metadata for the three agreed
+source IDs, disposable SQLite storage and LRCLIB. No audio was downloaded and no
+Last.fm credentials were used. No lyric text is included in these measurements.
+
+| Recording | Accepted result | Lines | First request | Cache hit |
+| --- | --- | ---: | ---: | ---: |
+| Daft Punk — Instant Crush | Synchronized | 83 | 0.176 s | 0.001 s |
+| Joji — PIXELATED KISSES | Synchronized | 18 | 0.069 s | 0.001 s |
+| OTOY — Судоми | Unavailable | 0 | 0.571 s | 0.001 s |
+
+These are observations of current provider coverage, not a guarantee for other
+releases or future availability. Feishin's structured-lyrics parser was inspected;
+actual display and audible synchronization have not been verified by the agent.
+
+Manual review after backing up the stopped data volume (schema 7 upgrade) and
+running `docker compose up -d --build`:
+
+1. Reconnect Feishin so it refreshes extension discovery. Prefer server lyrics
+   and disable automatic internet lyric lookup during this check, so an external
+   client fallback does not mask the server result.
+2. Search/play the agreed Daft Punk and Joji recordings, open lyrics, and verify
+   line highlighting. Seek forward and backward; compare the words to the audio.
+3. Check OTOY still plays with no server lyrics. Other releases may have coverage.
+4. Repeat the listening session: mix/radio, play, seek, lyrics, heart, saved replay
+   and one server scrobble. Confirm saved membership remains private per account.
+5. Test Amperfy when the iOS device is available; its display/seek alignment remains
+   deferred. Report title/release and timing differences rather than changing to
+   an unrelated lyric match.
+
 ## Catalog browsing and client review
 
 Select a generic **Subsonic/OpenSubsonic** server in the client, enter the
@@ -605,7 +679,8 @@ the client after rebuilding so it reloads these capabilities.
 
 Implemented read endpoints support XML/JSON, GET/form POST, and `.view` aliases:
 
-- Public `getOpenSubsonicExtensions`: `apiKeyAuthentication` and `formPost` v1.
+- Public `getOpenSubsonicExtensions`: `apiKeyAuthentication`, `formPost` and
+  `songLyrics` v1. Authenticated `getLyricsBySongId` serves structured lyrics.
 - Authenticated `ping`, `getLicense`, and the caller's own `getUser` profile.
   Administrative account management stays in the browser.
 - `search3` (tag results), `search2` (folder-style album results), `getSong`,
@@ -1037,3 +1112,21 @@ schema6, radio/seek/save/replay/report dedup, private filtering and restart.
 No live Last.fm credentials or writes, existing data volume, or user service
 restart was used. Real client radio/autoplay and audible next-track delay remain
 manual checks; Amperfy deferred. No audio prefetch or new security scan.
+
+
+Iteration 10, 2026-10-29: LRCLIB recording-signature matching, bounded persistent
+structured lyrics cache, line-level OpenSubsonic extension, JSON/XML/form POST,
+plain fallback and graceful empty responses. All 291 tests pass in 113.78s,
+including 36 new lyrics cases and the repeated simulated listening session with
+lyrics, radio, seek, heart/save/replay and mocked accepted scrobble delivery.
+Schema 1–6 migration tests preserve prior state; newer databases are refused.
+Ruff lint/format (42 files), direct 79-character line and fixture-import scans,
+diff and Compose checks pass. The existing TestClient/HTTPX deprecation remains.
+Live anonymous metadata/LRCLIB checks accepted timed lyrics for the agreed Daft
+Punk and Joji recordings; OTOY had no accepted match. Measurements are above.
+A disposable installed Docker image passed with networking disabled as UID10001:
+schema7, lyrics JSON/XML/cache/restart, radio, seek, saved replay, report dedup and
+private filtering. Runtime dependencies, lock, Dockerfile and Compose unchanged;
+no new vulnerability scan. No real Last.fm requests/writes, user credentials,
+existing volumes or running service were used. Feishin and Amperfy display and
+actual audible lyric alignment remain manual review steps.

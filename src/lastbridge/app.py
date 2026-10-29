@@ -15,6 +15,7 @@ from lastbridge.catalog import Catalog
 from lastbridge.config import Settings
 from lastbridge.lastfm import Lastfm
 from lastbridge.library import Library
+from lastbridge.lyrics import Lyrics
 from lastbridge.mixes import Mixes
 from lastbridge.radio import Radio
 from lastbridge.subsonic import router as subsonic_router
@@ -90,6 +91,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 follow_redirects=False,
             ) as client:
                 app.state.http_client = client
+                app.state.lyrics = Lyrics(
+                    app.state.accounts, app.state.catalog, client
+                )
                 app.state.sync = LastfmSync(
                     app.state.accounts,
                     app.state.catalog,
@@ -112,6 +116,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     yield
                 finally:
                     app.state.ready = False
+                    await app.state.lyrics.close()
                     await app.state.radio.close()
                     await app.state.mixes.close()
                     await app.state.sync.close()

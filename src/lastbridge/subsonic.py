@@ -11,6 +11,7 @@ router = APIRouter()
 EXTENSIONS = [
     {"name": "apiKeyAuthentication", "versions": [1]},
     {"name": "formPost", "versions": [1]},
+    {"name": "songLyrics", "versions": [1]},
 ]
 
 
@@ -20,7 +21,9 @@ def scalar(value):
 
 def xml_values(parent, values):
     for key, value in values.items():
-        if isinstance(value, dict):
+        if parent.tag == "line" and key == "value":
+            parent.text = value
+        elif isinstance(value, dict):
             xml_values(SubElement(parent, key), value)
         elif isinstance(value, list):
             for entry in value:
@@ -89,6 +92,14 @@ async def dispatch(request, method, values, user):
     library = request.app.state.library
     user_id = user["id"]
     folder(values)
+    if method == "getLyricsBySongId":
+        return {
+            "lyricsList": {
+                "structuredLyrics": await request.app.state.lyrics.get(
+                    required(values, "id"), fetch=request.method != "HEAD"
+                )
+            }
+        }
     if method == "scrobble":
         if request.method == "HEAD":
             raise CatalogError(10, "Use GET or POST to report playback")
@@ -267,7 +278,7 @@ async def dispatch(request, method, values, user):
         elif kind in ("recent", "frequent", "highest"):
             # Album history aggregation and ratings remain future work.
             albums = []
-        albums = albums[offset : offset + size]
+        albums = albums[offset: offset + size]
         if method == "getAlbumList":
             albums = [directory_album(a) for a in albums]
         return {
@@ -336,7 +347,7 @@ async def dispatch(request, method, values, user):
             else {"artist": [], "album": [], "song": []}
         )
         result = {
-            k: results[k][offset : offset + count]
+            k: results[k][offset: offset + count]
             for k, (offset, count) in pages.items()
         }
         if method == "search2":

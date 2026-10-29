@@ -156,6 +156,7 @@ def test_public_extensions_only_advertise_implemented_features(
     assert data["openSubsonicExtensions"] == [
         {"name": "apiKeyAuthentication", "versions": [1]},
         {"name": "formPost", "versions": [1]},
+        {"name": "songLyrics", "versions": [1]},
     ]
     root = fromstring(client.get("/rest/getOpenSubsonicExtensions").content)
     ns = {"s": "http://subsonic.org/restapi"}
@@ -465,7 +466,7 @@ def test_migration_from_v1_preserves_accounts(tmp_path):
     migrated = Accounts(tmp_path)
     assert migrated.user("admin")["admin"] == 1
     with migrated.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
         assert (
             connection.execute("SELECT count(*) FROM catalog").fetchone()[0]
             == 0

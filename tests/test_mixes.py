@@ -368,6 +368,7 @@ def test_v4_upgrade_preserves_sync_and_saved_state(mix_service):
         for name in ("favorites", "save_jobs", "scrobbles", "love_imports")
     }
     with app.state.accounts.transaction() as connection:
+        connection.execute("DROP TABLE lyrics")
         connection.execute("DROP TABLE radio")
         connection.execute("DROP TABLE mixes")
         connection.execute("PRAGMA user_version=4")
@@ -379,7 +380,7 @@ def test_v4_upgrade_preserves_sync_and_saved_state(mix_service):
         == "admin"
     )
     with migrated.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
         assert (
             connection.execute("SELECT count(*) FROM mixes").fetchone()[0] == 0
         )

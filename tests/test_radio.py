@@ -299,13 +299,14 @@ def test_v5_upgrade_preserves_mixes_and_sync(radio_service):
     app.state.mixes.linked(uid(service))
     before = rows(service, "mixes")
     with app.state.accounts.transaction() as connection:
+        connection.execute("DROP TABLE lyrics")
         connection.execute("DROP TABLE radio")
         connection.execute("PRAGMA user_version=5")
     store = Accounts(app.state.accounts.path.parent)
     assert rows(service, "mixes") == before
     assert store.client_user({"apiKey": service[3]["admin"]})
     with store.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
 
 
 @pytest.mark.parametrize(
@@ -374,6 +375,28 @@ def test_listening_session_seek_save_replay_and_scrobble(radio_service):
         "/rest/stream", params=params, headers={"Range": "bytes=10-19"}
     )
     assert response.status_code == 206 and len(response.content) == 10
+
+    async def lyrics():
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200,
+                    json={
+                        "artistName": next_song["artist"],
+                        "trackName": next_song["title"],
+                        "albumName": next_song["album"],
+                        "duration": next_song["duration"],
+                        "syncedLyrics": "[00:01.25] Synthetic session line",
+                    },
+                )
+            )
+        ) as upstream:
+            app.state.lyrics.client = upstream
+            result = await app.state.lyrics.get(next_song["id"])
+            assert result[0]["synced"] is True
+            assert result[0]["line"][0]["start"] == 1250
+
+    run(service, lyrics)
     get(service, "star", id=next_song["id"])
     assert run(service, app.state.library.process_one)
     calls = list(app.state.audio.provider.calls)
