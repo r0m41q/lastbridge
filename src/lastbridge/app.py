@@ -160,7 +160,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'none'; form-action 'self' https://www.last.fm; "
+            "default-src 'none'; style-src 'self'; "
+            "form-action 'self' https://www.last.fm; "
             "frame-ancestors 'none'; "
             "base-uri 'none'"
         )

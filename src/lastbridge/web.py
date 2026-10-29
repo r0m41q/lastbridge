@@ -1,28 +1,36 @@
 import hmac
 import secrets
 from html import escape
+from pathlib import Path
 from urllib.parse import parse_qsl, urlencode
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from lastbridge.accounts import SESSION_SECONDS
 from lastbridge.catalog import CatalogError
 from lastbridge.lastfm import AUTH_VALUE, LastfmError
+from lastbridge.ui import badge, document, heading, icon
 
 router = APIRouter()
 COOKIE = "lastbridge_session"
 LOGIN_CSRF = "lastbridge_login_csrf"
 
 
-def page(title: str, body: str, status: int = 200) -> HTMLResponse:
+def page(
+    title: str, body: str, status: int = 200, *, user=None
+) -> HTMLResponse:
     return HTMLResponse(
-        '<!doctype html><html lang="en"><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{escape(title)} · Lastbridge</title><body>"
-        f"<h1>{escape(title)}</h1>{body}</body></html>",
+        document(title, body, user),
         status_code=status,
+    )
+
+
+@router.get("/assets/style.css", include_in_schema=False)
+async def stylesheet():
+    return FileResponse(
+        Path(__file__).with_name("static") / "style.css", media_type="text/css"
     )
 
 
@@ -31,8 +39,10 @@ def csrf_field(value: str) -> str:
 
 
 def form(action: str, csrf: str, label: str) -> str:
+    kind = "danger" if action.endswith("/delete") else "secondary"
     return (
-        f'<form method="post" action="{action}">{csrf_field(csrf)}'
+        f'<form class="{kind}" method="post" action="{action}">'
+        f"{csrf_field(csrf)}"
         f'<button type="submit">{escape(label)}</button></form>'
     )
 
@@ -113,13 +123,19 @@ async def login_page(request: Request):
     csrf = secrets.token_urlsafe(32)
     response = page(
         "Sign in",
+        '<section class="auth-form login-panel"><h1>Sign in</h1>'
         '<form method="post" action="/login">'
         + csrf_field(csrf)
         + '<label>Username <input name="username" required maxlength="64" '
-        'autocomplete="username"></label><br>'
+        'autocomplete="username" autocapitalize="none" '
+        'spellcheck="false" placeholder="Your username"></label>'
         '<label>Password <input type="password" name="password" required '
-        'maxlength="256" autocomplete="current-password"></label><br>'
-        '<button type="submit">Sign in</button></form>',
+        'maxlength="256" autocomplete="current-password" '
+        'placeholder="Your browser password"></label>'
+        '<button type="submit">Sign in</button></form>'
+        '<p class="auth-note">Need an account? Your server administrator '
+        "can create one for you. Music apps use a separate client password."
+        "</p></section>",
     )
     response.set_cookie(
         LOGIN_CSRF,
@@ -177,58 +193,107 @@ async def account(request: Request):
     if user is None:
         return RedirectResponse("/login", status_code=303)
     linked = user["link_status"] == "linked"
-    body = f"<p>Signed in as {escape(user['username'])}.</p>"
+    downloads = request.app.state.library.downloads(user["id"])
+    saved = sum(item["state"] == "complete" for item in downloads)
+    pending = len(downloads) - saved
+    playlists = request.app.state.playlists.local(user)
+    body = '<div class="dashboard"><div class="stats">'
+    for label, value, symbol in (
+        ("Saved recordings", saved, "library"),
+        ("Download jobs", pending, "sync"),
+        ("Your playlists", len(playlists), "list"),
+    ):
+        body += (
+            f'<div class="stat"><p class="eyebrow">{label}</p>'
+            f"<strong>{value}</strong>{icon(symbol)}</div>"
+        )
+    body += (
+        "</div><section>"
+        + heading(
+            "", "Connections"
+        )
+        + '<div class="columns"><section class="panel" id="lastfm-connection">'
+    )
+    body += (
+        '<div class="card-top"><span class="card-icon">'
+        + icon("sync")
+        + "</span>"
+        + badge(
+            "Connected" if linked else "Connection needed",
+            "good" if linked else "warm",
+        )
+        + "</div><h3>Your listening, connected (Last.fm).</h3>"
+    )
     if linked:
-        body += '<p><a href="/library">Saved library and download jobs</a></p>'
-        body += f"<p>Last.fm: {escape(user['lastfm_name'])} (linked).</p>"
+        body += (
+            f"<p>Last.fm: <strong>{escape(user['lastfm_name'])}</strong> "
+            "(linked). Your listening helps shape your next discovery.</p>"
+        )
     elif user["link_status"] == "relink":
         body += (
             "<p>Last.fm authorization was revoked. Link again to continue.</p>"
         )
     else:
         body += "<p>Link Last.fm before connecting a music client.</p>"
-    if user["link_status"] in ("linked", "relink"):
-        body += '<p><a href="/playlists">Playlists and kept downloads</a></p>'
-        body += '<p><a href="/mixes">Personal mixes and refresh status</a></p>'
-        body += (
-            '<p><a href="/lastfm/sync">Last.fm import '
-            "and scrobble status</a></p>"
-        )
     if request.app.state.lastfm.configured:
-        body += form(
-            "/lastfm/link",
-            user["csrf"],
-            "Relink Last.fm" if linked else "Link Last.fm",
+        body += (
+            '<div class="actions">'
+            + form(
+                "/lastfm/link",
+                user["csrf"],
+                "Relink Last.fm" if linked else "Link Last.fm",
+            )
+            + "</div>"
         )
     else:
-        body += "<p>Ask the administrator to configure Last.fm keys.</p>"
+        body += (
+            '<p class="notice">Ask the administrator to configure '
+            "Last.fm keys.</p>"
+        )
+    body += '</section><section class="panel"><div class="card-top">'
+    body += '<span class="card-icon">' + icon("key") + "</span>"
+    body += badge("Ready to connect" if linked else "Link Last.fm first")
+    body += "</div><h3>Music clients</h3>"
+    body += (
+        "<p>Generate a client password to connect your music app.</p>"
+    )
     if linked:
         body += (
-            "<p>Use your username and a generated client password in music "
-            "apps. The same value can be used as an OpenSubsonic API key. "
-            "Generating a new one disconnects clients using the old value.</p>"
+            "<details><summary>How to connect</summary><p>Use your username "
+            "and a generated client password in music apps. The same value "
+            "can be used as an OpenSubsonic API key. Generating a new one "
+            "disconnects clients using the old value.</p></details>"
+            '<div class="actions">'
         )
-        body += form(
-            "/account/client-password",
-            user["csrf"],
-            "Generate replacement client password"
-            if user["client_secret"]
-            else "Generate client password",
+        body += (
+            form(
+                "/account/client-password",
+                user["csrf"],
+                "Generate replacement client password"
+                if user["client_secret"]
+                else "Generate client password",
+            )
+            + "</div>"
         )
+    body += "</section></div></section>"
     if user["admin"]:
         body += (
-            '<h2>Create user</h2><form method="post" action="/admin/users">'
+            '<section class="panel admin-panel">'
+            + heading(
+                "", "Create user",
+            )
+            + '<form method="post" action="/admin/users">'
+            + csrf_field(user["csrf"])
+            + '<label>Username <input name="username" required maxlength="64" '
+            'autocomplete="off" autocapitalize="none" spellcheck="false" '
+            'placeholder="e.g. alex"></label><label>Initial browser password '
+            '<input type="password" name="password" minlength="8" '
+            'maxlength="256" required autocomplete="new-password" '
+            'placeholder="At least 8 characters"></label>'
+            '<button type="submit">Create user</button></form></section>'
         )
-        body += csrf_field(user["csrf"])
-        body += (
-            '<label>Username <input name="username" required maxlength="64" '
-            'autocomplete="off"></label><br><label>Initial browser password '
-            '<input type="password" name="password" minlength="12" '
-            'maxlength="256" required autocomplete="new-password"></label><br>'
-            '<button type="submit">Create user</button></form>'
-        )
-    body += form("/logout", user["csrf"], "Sign out")
-    return page("Your account", body)
+    body += form("/logout", user["csrf"], "Sign out") + "</div>"
+    return page("Your account", body, user=user)
 
 
 @router.get("/library")
@@ -238,26 +303,27 @@ async def library_page(request: Request):
         return RedirectResponse("/login", status_code=303)
     library = request.app.state.library
     downloads = library.downloads(user["id"])
-    body = (
-        '<p><a href="/">Your account</a></p>'
-        "<p>Song hearts save a recording; album hearts save the available "
-        "album tracks. Artist hearts are bookmarks. Your favorites stay "
-        "saved if a download fails. Unheart in your music app to release "
-        "your favorite pin; other users and downloaded playlists keep theirs. "
-        '<a href="/playlists">Manage playlist downloads</a>.</p>'
+    body = '<div class="dashboard"><section class="panel">'
+    body += heading("", "Downloads")
+    body += (
+        "<p>Heart a song in your music app to keep it here. "
+        "Your favourites and downloaded playlists "
+        "share the same collection.</p>"
     )
     if downloads:
         body += (
-            "<table><tr><th>Track</th><th>Download</th><th>Attempts</th></tr>"
+            "<div class='table-scroll'><table><tr><th scope=col>Track</th>"
+            "<th scope=col>Download</th><th scope=col>Attempts</th></tr>"
         )
         for item in downloads:
             state = "saved" if item["state"] == "complete" else item["state"]
             body += (
-                f"<tr><td>{escape(item['title'])}</td><td>{escape(state)}"
-                f"{': ' + escape(item['error']) if item['error'] else ''}"
+                f"<tr><td>{escape(item['title'])}</td><td>"
+                + badge(state, "good" if state == "saved" else "warm")
+                + f"{': ' + escape(item['error']) if item['error'] else ''}"
                 f"</td><td>{item['attempts']}</td></tr>"
             )
-        body += "</table>"
+        body += "</table></div>"
         body += form(
             "/library/retry",
             user["csrf"],
@@ -269,7 +335,17 @@ async def library_page(request: Request):
             'in your music app or <a href="/playlists">'
             "keep a playlist</a>.</p>"
         )
-    return page("Saved library", body)
+    body += (
+        "<details><summary>How saved music works</summary><p>Song hearts "
+        "save a recording; album hearts save available album tracks. "
+        "Artist hearts are bookmarks. "
+        "Favorites stay saved if a download fails. "
+        "Unheart in your music app to release your favorite pin; other users "
+        "and downloaded playlists keep theirs.</p><p>"
+        '<a href="/playlists">Manage playlist downloads</a>.</p>'
+        "</details></section></div>"
+    )
+    return page("Saved library", body, user=user)
 
 
 @router.post("/library/retry")
@@ -287,10 +363,7 @@ async def sync_page(request: Request):
     if user is None:
         return RedirectResponse("/login", status_code=303)
     job, counts, items, reports = request.app.state.sync.snapshot(user["id"])
-    body = (
-        '<p><a href="/">Your account</a> · '
-        '<a href="/library">Downloads</a></p>'
-    )
+    body = '<div class="dashboard"><section class="panel">'
     if user["link_status"] != "linked":
         body += (
             "<p>Relink Last.fm on your account page to resume delivery.</p>"
@@ -341,7 +414,8 @@ async def sync_page(request: Request):
     else:
         body += "<p>No import queued. Link Last.fm to start.</p>"
     body += (
-        "<h2>Scrobbles</h2><p>Only completed-play reports count. "
+        '</section><section class="panel"><h2>Scrobbles</h2>'
+        "<p>Only completed-play reports count. "
         "Streaming and downloading do not count. Configure your client "
         "to submit "
         "after half the track or four minutes. Avoid enabling another Last.fm "
@@ -349,9 +423,10 @@ async def sync_page(request: Request):
         "<p>Uncertain means Last.fm may already have accepted a report. "
         "Automatic retries stop for these reports. Check your Last.fm history "
         "before retrying; a manual retry may create a duplicate.</p>"
-        "<p>Latest 100 reports:</p><table><tr><th>Track</th><th>Account</th>"
-        "<th>Start (UTC Unix seconds)</th><th>Status</th>"
-        "<th>Attempts</th></tr>"
+        "<p>Latest 100 reports:</p><div class='table-scroll'><table><tr>"
+        "<th scope=col>Track</th><th scope=col>Account</th>"
+        "<th scope=col>Start (UTC Unix seconds)</th><th scope=col>Status</th>"
+        "<th scope=col>Attempts</th></tr>"
     )
     for report in reports:
         body += (
@@ -361,7 +436,7 @@ async def sync_page(request: Request):
             f"{escape(report['error'] or '')}</td>"
             f"<td>{report['attempts']}</td></tr>"
         )
-    body += "</table>"
+    body += "</table></div>"
     body += form(
         "/lastfm/sync/retry-scrobbles",
         user["csrf"],
@@ -372,7 +447,8 @@ async def sync_page(request: Request):
         user["csrf"],
         "Retry uncertain reports — may duplicate Last.fm history",
     )
-    return page("Last.fm sync", body)
+    body += "</section></div>"
+    return page("Last.fm sync", body, user=user)
 
 
 @router.post("/lastfm/sync/{action}")
@@ -403,21 +479,44 @@ async def mixes_page(request: Request):
         return RedirectResponse("/login", status_code=303)
     mixes = request.app.state.mixes
     status = mixes.status(user["id"])
+    items = mixes.playlists(user)
     body = (
-        '<p><a href="/">Your account</a> · <a href="/radio">Radio</a></p>'
-        "<p>Open Playlists in your music app. These lists are managed by "
-        "the server. Mix generation stores metadata; it does not save audio. "
-        "Heart a song to keep it downloaded.</p>"
-        "<p>Comfort uses favorites and six-month top tracks. Discover uses "
-        "similar tracks outside your known listening sample; new profiles "
-        "get chart suggestions. Listen Again uses recent completed listening. "
-        "Loved Tracks shows matched Last.fm loves still saved locally.</p>"
-        "<p>Generated mixes have up to 30 tracks and keep "
-        "their previous snapshot during outages. Initial generation may take "
-        "up to three minutes. Unavailable or ambiguous matches are omitted. "
-        "Loved Tracks follows the import and local hearts immediately. "
-        "Reload this page for progress.</p>"
+        '<div class="dashboard"><section>'
+        + heading("", "Mixes",)
+        + '<div class="mix-grid">'
     )
+    descriptions = (
+        ("comfort", "Favourites and top tracks."),
+        ("discover", "Last.fm similar-track recommendations."),
+        ("again", "Recently played tracks."),
+        ("loved", "Imported Last.fm loved tracks."),
+    )
+    for number, (item, (kind, description)) in enumerate(
+        zip(items, descriptions, strict=True), 1
+    ):
+        body += (
+            '<article class="mix-card">'
+            f'<div class="mix-art {kind}" aria-hidden="true">'
+            f'<span class="mix-number">VOL. 0{number}</span>'
+            f"<strong>{escape(item['name'])}</strong></div>"
+            f"<h3>{escape(item['name'])}</h3>"
+            f'<p class="mix-description">{description}</p>'
+            f"<p>{item['songCount']} tracks · "
+            "Open in your music app</p></article>"
+        )
+    body += '</div></section><section class="panel">'
+    body += '<div class="card-top"><span class="card-icon">'
+    body += icon("sync") + "</span>"
+    body += (
+        badge(
+            "Refreshing"
+            if status and status["running"]
+            else "Your refresh schedule",
+            "good",
+        )
+        + "</div>"
+    )
+    body += "<h2>Refresh schedule</h2>"
     body += (
         f"<p>Automatic refresh: every {mixes.refresh_interval // 3600} hours "
         "after a successful refresh, including manual refreshes. Pauses after "
@@ -428,38 +527,51 @@ async def mixes_page(request: Request):
     if status:
         from lastbridge.mixes import date
 
-        body += (
-            "<p>Status: "
-            + (
-                "refreshing"
-                if status["running"]
-                else "waiting for next refresh"
-            )
-            + ".</p>"
+        state = (
+            "refreshing" if status["running"] else "waiting for next refresh"
         )
-        if status["updated"]:
-            body += (
-                "<p>Last successful refresh: "
-                f"{escape(date(status['updated']))}.</p>"
-            )
+        last = (
+            escape(date(status["updated"])) if status["updated"] else "Not yet"
+        )
+        next_time = (
+            escape(date(status["next_attempt"]))
+            if status["next_attempt"]
+            else "Queued"
+        )
+        body += (
+            '<div class="schedule-row"><div><p class="eyebrow">Status</p>'
+            f"<strong>Status: {state}.</strong></div>"
+            '<div><p class="eyebrow">Last successful refresh</p>'
+            f"<strong>{last}</strong></div>"
+            '<div><p class="eyebrow">Next refresh or retry eligible at:</p>'
+            f"<strong>{next_time} (UTC)</strong></div></div>"
+        )
         if status["error"]:
-            body += f"<p>{escape(status['error'])}</p>"
-        if status["next_attempt"] and not status["running"]:
-            body += (
-                "<p>Next refresh or retry eligible at: "
-                f"{escape(date(status['next_attempt']))} (UTC).</p>"
-            )
-        body += "<ul>"
-        for item in mixes.playlists(user):
-            body += (
-                f"<li>{escape(item['name'])}: {item['songCount']} tracks</li>"
-            )
-        body += "</ul>"
+            body += f'<p class="notice">{escape(status["error"])}</p>'
+        body += '<div class="actions">'
         body += form("/mixes/refresh", user["csrf"], "Refresh my mixes")
-        body += "<p>Manual refresh is limited to once every five minutes.</p>"
+        body += '<span class="muted">Manual refresh is limited to once '
+        body += "every five minutes.</span></div>"
     else:
-        body += "<p>Link Last.fm to start generating your mixes.</p>"
-    return page("Personal mixes", body)
+        body += (
+            '<p class="notice">Link Last.fm to start generating '
+            "your mixes.</p>"
+        )
+    body += (
+        "<details><summary>What goes into your mixes?</summary>"
+        "<p>Comfort uses favorites and six-month top tracks. Discover uses "
+        "similar tracks outside your known listening sample; new profiles "
+        "get chart suggestions. Listen Again uses recent completed listening. "
+        "Loved Tracks shows matched Last.fm loves still saved locally.</p>"
+        "<p>Generated mixes have up to 30 tracks and keep their previous "
+        "snapshot during outages. Initial generation may take up to three "
+        "minutes. Unavailable or ambiguous matches are omitted. Loved Tracks "
+        "follows the import and local hearts immediately. "
+        "Reload for progress.</p>"
+        "<p>Mix generation stores metadata; it does not save audio. "
+        "Heart a song to keep it downloaded.</p></details></section></div>"
+    )
+    return page("Personal mixes", body, user=user)
 
 
 @router.get("/playlists")
@@ -472,29 +584,40 @@ async def playlists_page(request: Request):
     playlists = request.app.state.playlists
     local = playlists.local(user)
     downloaded = playlists.downloaded(user)
-    body = (
-        '<p><a href="/">Your account</a> · <a href="/library">Downloads</a>'
-        ' · <a href="/mixes">Personal mixes</a></p>'
-        "<p>Edit tracks and their order in your music app. Ordinary playlists "
-        "store references only. Keep downloaded queues tracks for permanent "
-        "server storage, including later additions. This does not download "
-        "anything onto your phone or add hearts. Download progress and retry "
-        "are on the Downloads page.</p>"
-        "<p>Releasing a playlist keeps its track list. Audio stays retained "
-        "while any favorite or downloaded playlist needs it; otherwise it "
-        "returns to the temporary cache. "
-        "Loaded client queues are unchanged.</p>"
-        '<form method="post" action="/playlists/create">'
+    body = '<div class="dashboard"><section class="panel">'
+    body += heading("", "Create playlist")
+    body += (
+        "<p>Edit tracks and their order in your music app.</p>"
+        '<form class="inline-form" method="post" '
+        'action="/playlists/create">'
         + csrf_field(user["csrf"])
-        + '<label>Name <input name="name" required maxlength="200"></label>'
-        '<button type="submit">Create empty playlist</button></form><ul>'
+        + '<label>Name <input name="name" required maxlength="200" '
+        'placeholder="Playlist name"></label>'
+        '<button type="submit">Create empty playlist</button></form></section>'
+        "<section>"
     )
+    body += heading(
+        "", "Your playlists", f"{len(local)} playlists"
+    )
+    if not local:
+        body += (
+            '<div class="panel empty-state"><span class="card-icon">'
+            + icon("list")
+            + "</span><h3>No playlists yet.</h3>"
+            "<p>Create one above, or make an editable copy of a mix below.</p>"
+            "</div>"
+        )
     for item in local:
         item_id = item["id"]
         kept = item_id in downloaded
         body += (
-            f"<li>{escape(item['name'])}: {item['songCount']} tracks. "
+            '<article class="panel playlist-row"><span class="card-icon">'
+            + icon("list")
+            + '</span><div class="playlist-info">'
+            f"<h3>{escape(item['name'])}</h3><p>{item['songCount']} tracks · "
             + ("Kept downloaded." if kept else "Metadata only.")
+            + "</p></div>"
+            '<div class="actions">'
             + form(
                 f"/playlists/{item_id}/release"
                 if kept
@@ -505,10 +628,15 @@ async def playlists_page(request: Request):
             + form(
                 f"/playlists/{item_id}/delete", user["csrf"], "Delete playlist"
             )
-            + "</li>"
+            + "</div></article>"
         )
-    body += "</ul><h2>Copy a playlist</h2><p>Copies are independent, editable "
-    body += "snapshots. Later source refreshes do not change the copy.</p>"
+    body += '</section><section class="panel">'
+    body += heading("", "Copy a playlist")
+    body += (
+        "<p>Copies are independent, editable snapshots. "
+        "Later source refreshes do not change the copy.</p>"
+    )
+
     choices = local + request.app.state.mixes.playlists(user)
     radio = request.app.state.radio.playlist(user)
     if radio:
@@ -528,7 +656,19 @@ async def playlists_page(request: Request):
             'required maxlength="200"></label>'
             '<button type="submit">Create editable copy</button></form>'
         )
-    return page("Playlists", body)
+    body += (
+        '</section><section class="panel"><details>'
+        "<summary>About downloads and storage</summary>"
+        "<p>Ordinary playlists store references only. Keep downloaded queues "
+        "tracks for permanent server storage, including later additions. "
+        "This does not download anything onto your phone or add hearts. "
+        "Download progress and retry are on the Saved library page.</p>"
+        "<p>Releasing a playlist keeps its track list. Audio stays retained "
+        "while any favorite or downloaded playlist needs it; otherwise it "
+        "returns to the temporary cache. Loaded client queues are unchanged."
+        "</p></details></section></div>"
+    )
+    return page("Playlists", body, user=user)
 
 
 @router.post("/playlists/{action}")
@@ -583,6 +723,7 @@ async def refresh_mixes(request: Request):
             "Refresh not queued",
             f'<p>{escape(str(error))}</p><a href="/mixes">Back to mixes</a>',
             409,
+            user=user,
         )
     return RedirectResponse("/mixes", status_code=303)
 
@@ -628,7 +769,7 @@ async def radio_page(request: Request):
             "<p>Link Last.fm and wait for personal mixes, "
             "or save a song first.</p>"
         )
-    return page("Radio", body)
+    return page("Radio", body, user=user)
 
 
 @router.post("/radio")
@@ -644,6 +785,7 @@ async def radio_action(request: Request):
             f"<p>{escape(failure.message)}</p>"
             '<a href="/radio">Back to radio</a>',
             503,
+            user=user,
         )
     return RedirectResponse("/radio", status_code=303)
 
@@ -661,8 +803,15 @@ async def create_user(request: Request):
                 values.get("password", ""),
             )
     except ValueError as error:
-        return page("Account not created", f"<p>{escape(str(error))}</p>", 400)
-    return page("User created", '<a href="/">Back to your account</a>')
+        return page(
+            "Account not created",
+            f"<p>{escape(str(error))}</p>",
+            400,
+            user=user,
+        )
+    return page(
+        "User created", '<a href="/">Back to your account</a>', user=user
+    )
 
 
 @router.post("/account/client-password")
@@ -676,6 +825,7 @@ async def client_password(request: Request):
         "<p>Copy this value now. It will not be "
         f"displayed again.</p><code>{escape(value)}</code>"
         '<p><a href="/">Back to your account</a></p>',
+        user=user,
     )
 
 
@@ -721,6 +871,7 @@ async def callback(request: Request):
             "<p>Last.fm did not complete the link. "
             'Your existing link is kept. <a href="/">Start again</a>.</p>',
             502,
+            user=user,
         )
     if not request.app.state.accounts.finish_link(
         user["token_hash"], name, secret

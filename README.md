@@ -42,7 +42,7 @@ a continuous disk/third-party availability check.
 ## Accounts and Last.fm linking
 
 Create the first administrator from a trusted local terminal. Passwords use
-hidden prompts and must contain 12–256 characters. Usernames use lowercase ASCII
+hidden prompts and must contain 8–256 characters. Usernames use lowercase ASCII
 letters, digits, dots, hyphens, and underscores (maximum 64 characters).
 
 ```sh
@@ -241,7 +241,7 @@ These follow the [star](https://opensubsonic.netlify.app/docs/endpoints/star/),
 [unstar](https://opensubsonic.netlify.app/docs/endpoints/unstar/), and
 [getStarred2](https://opensubsonic.netlify.app/docs/endpoints/getstarred2/) contracts.
 
-Open **Saved library and download jobs** in your browser account (or `/library`)
+Open **Saved library** in your browser account (or `/library`)
 to see your pending, running, saved, and failed recordings. Reload to update the
 table. One background save runs at a time, sharing in-flight acquisition and
 completed audio with playback. Initial failure retries after 30 seconds, then
@@ -288,7 +288,7 @@ future work. Last.fm sync review follows.
 
 Linking Last.fm automatically creates a private loved-track import. Existing
 linked accounts also receive initial import intent on startup after upgrading.
-Open **Last.fm import and scrobble status** on your browser account (`/lastfm/sync`)
+Open **Last.fm sync** on your browser account (`/lastfm/sync`)
 for progress, pause/resume, refresh, unmatched tracks, and delivery status. Reload
 to update; `/library` shows the resulting audio download jobs.
 
@@ -383,6 +383,29 @@ page and pause imports there if needed.
 Automated checks use mocked Last.fm responses and disposable storage. No real
 Last.fm scrobbles or loved imports have been sent by the agent; client/device
 acceptance remains manual. No new credentials or configuration variables are needed.
+
+## Browser interface
+
+The account panel has a responsive navigation rail, connection cards and real
+saved/download/playlist counts. Personal mixes have distinct artwork and live
+track counts; playlists have individual retention controls. Library and Last.fm
+sync pages use scrollable tables on small screens. Technical explanations sit
+behind expandable sections where useful; every action still uses ordinary forms.
+
+The interface follows the device's light/dark appearance. It uses system fonts,
+local icons and CSS artwork, with one locally served stylesheet (under 20 KB),
+no JavaScript, remote assets, frontend build process or additional dependencies.
+Keyboard users have a skip link and visible focus; motion respects the system's
+reduced-motion preference. Mobile text fields use 16px text to avoid focus zoom.
+The browser panel manages accounts and server actions; playback stays in your
+chosen music app. Mix cards display actual counts, including zero, and do not
+pretend that a mix has already generated or offer a nonfunctional web player.
+
+Browser passwords now accept **8–256 characters** when creating or resetting an
+account, through the administrator form or management CLI. Existing accounts
+continue to work; generated music-client passwords retain their existing format.
+No database migration is introduced by this UI change. After rebuilding with
+`docker compose up -d --build`, reload the browser to load the local stylesheet.
 
 ## Video-seeded radio correction
 
@@ -1442,3 +1465,25 @@ flags the two pre-existing protocol slice-spacing differences. No Flake8 run,
 new credentials/dependencies/schema, live Last.fm call, image rebuild or running
 service change. Live Feishin acceptance requires `docker compose up -d --build`.
 Suggested commit: `feat: add Last.fm radio fallback`.
+
+
+Browser redesign and password review (2026-10-29): **373 tests pass** (145.83 s),
+including 14 new UI/password cases. Validates eight-character creation/reset and
+login, rejected 7/257 boundaries, maximum 256, authenticated navigation/admin-only
+forms, escaped shell values, semantic headings/labels, stylesheet MIME/path and
+CSP restrictions without script or inline-style permissions. Existing Starlette
+TestClient/HTTPX warning remains. Ruff lint/changed-file formatting/direct Python
+79-character/imported-helper shadow/diff checks pass. Global formatting retains
+the two existing unrelated protocol slice-spacing differences; no Flake8 run.
+
+Isolated Chromium preview uses synthetic accounts and metadata in temporary
+storage with provider workers stopped. All six signed-in pages and sign-in have
+no page-wide horizontal overflow at 320/390/768/1440px; controls have labels and
+one h1 per page. Light/dark styling and first keyboard target (Skip to content)
+verified. This is browser emulation, not physical iOS device acceptance.
+
+Review image `lastbridge-ui-review` built with unchanged locked dependencies,
+base and media layers. Network-disabled installed-image smoke passes as UID10001:
+packaged local CSS, styled login/account/mixes, eight-character login and CSP.
+No real credentials/data volumes, live provider requests or running user service
+were used. Suggested commit: `feat: redesign web UI and allow 8-character passwords`.

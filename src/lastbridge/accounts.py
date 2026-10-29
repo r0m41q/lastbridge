@@ -40,8 +40,8 @@ def verify_password(password: str, encoded: str) -> bool:
 def validate_account(username: str, password: str) -> None:
     if not USERNAME.fullmatch(username):
         raise ValueError("Use 1–64 lowercase letters, digits, dots, - or _.")
-    if not 12 <= len(password) <= 256:
-        raise ValueError("Browser passwords must contain 12–256 characters.")
+    if not 8 <= len(password) <= 256:
+        raise ValueError("Browser passwords must contain 8–256 characters.")
 
 
 SCHEMA = (
