@@ -643,7 +643,8 @@ no songs, malformed/negative values fail. HEAD cannot select radio.
 The legacy protocol describes Last.fm artist similarity. This implementation uses
 YouTube Music's anonymous
 [watch radio](https://ytmusicapi.readthedocs.io/en/stable/reference/watch.html)
-to continue a recording, while Last.fm taste still drives the personal mixes.
+as the primary source, with Last.fm similar-track metadata as a fallback.
+Last.fm taste also continues to drive the personal mixes.
 Songs seed directly. Albums use their first available track; artists use a known
 catalog track, or the first available track on their first returned release.
 Artist/album hydration is bounded by the same request deadline. An unavailable
@@ -659,12 +660,35 @@ not fetch the full remote Last.fm listening history. Different users can receive
 different results from the same public recommendation pool.
 
 Public metadata pools contain at most 50 songs, with a 15-minute lifetime and a
-32-seed LRU bound. Fetches are shared per source, at most four pending and two
+32-pool LRU bound across both providers. Fetches are shared per source, at most four pending and two
 running, using the existing bounded metadata subprocess. The entire request has
-a 20-second deadline, including artist/album hydration. Exhausted cached pools
+a 20-second deadline, including artist/album hydration. The primary
+YouTube radio fetch gets up to six seconds, reserving time for fallback. Exhausted cached pools
 can fetch another radio after one minute; no recently played song is reinserted
 just to fill the count. A short result or unavailable-radio response is possible.
 These are continuation batches, not a guarantee of infinite playback in every app.
+
+When the primary request fails, times out, or leaves no eligible songs after
+private exclusions, Lastbridge calls Last.fm's
+[track.getSimilar](https://www.last.fm/api/show/track.getSimilar) using the existing
+application key. This public read sends no user session token and writes nothing
+to Last.fm. It uses the selected recording's artist/title, with autocorrection off.
+Up to ten distinct suggestions are matched through the existing strict YouTube
+song matcher: exact normalized artist/title, preserved live/remix qualifiers,
+official audio only, ambiguous recordings skipped. Matching gets up to two
+seconds per suggestion and twelve seconds overall, within the request deadline.
+Partial completed matches survive a fallback timeout; duplicates, seed, recent
+plays and explicit removals are filtered for the requesting user afterwards.
+A fallback queue may therefore be much shorter than the requested count.
+
+Fallback pools share the same task, concurrency and cache-size bounds as primary
+pools, but have separate cache keys. Successful pools last fifteen minutes; empty
+or Last.fm-failed fallback reads cool down for one minute. One disconnected caller
+does not cancel shared work. Fallback acquisition stores public metadata only,
+never audio, favorites or save jobs. It still needs YouTube search and playback;
+it does not bypass a complete YouTube outage. If both sources fail, the existing
+same-seed private snapshot is tried before returning a safe error. Missing Last.fm
+configuration disables the extra source without affecting healthy primary radio.
 
 Starting a stream or reporting `submission=false` warms radio metadata without
 waiting for it. Warming is limited to once a minute per user (128-user LRU),
@@ -1359,3 +1383,17 @@ still flags two existing slice-spacing lines in the user's current protocol file
 which this fix preserves. No dependencies/schema/configuration changes. The
 running service is unchanged until the user rebuilds; Feishin acceptance remains
 pending. Suggested commit: `fix: recover radio for music-video seeds`.
+
+
+Last.fm direct-radio fallback review (2026-10-29): full suite **341 tests pass**
+(135.93 s), including 13 fallback cases for empty/error/slow/excluded primary
+pools, strict playable matching, public HTTP without a session token, private
+exclusions over shared cache, same-seed outage snapshots, bounded lookups and
+partial deadlines, empty-result cooldown, healthy-primary isolation, shared
+waiter cancellation, and zero/HEAD requests. One existing TestClient/HTTPX warning
+remains. Ruff lint, changed-file formatting, direct Python 79-character and
+imported-helper shadow checks, and diff checks pass. Global formatting still
+flags the two pre-existing protocol slice-spacing differences. No Flake8 run,
+new credentials/dependencies/schema, live Last.fm call, image rebuild or running
+service change. Live Feishin acceptance requires `docker compose up -d --build`.
+Suggested commit: `feat: add Last.fm radio fallback`.

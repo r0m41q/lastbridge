@@ -92,6 +92,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 follow_redirects=False,
             ) as client:
                 app.state.http_client = client
+                app.state.radio.lastfm = app.state.lastfm
+                app.state.radio.client = client
                 app.state.lyrics = Lyrics(
                     app.state.accounts, app.state.catalog, client
                 )

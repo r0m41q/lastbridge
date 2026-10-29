@@ -6,20 +6,25 @@ import time
 from collections import OrderedDict
 from uuid import NAMESPACE_URL, uuid5
 
-from lastbridge.catalog import CatalogError
+from lastbridge.catalog import CatalogError, identity
+from lastbridge.lastfm import LastfmRequestError
 from lastbridge.mixes import date
+from lastbridge.providers.base import ProviderError
 from lastbridge.recordings import recording_key
 
 logger = logging.getLogger(__name__)
 DEADLINE = 20
 TTL = 900
+PRIMARY_DEADLINE = 6
+FALLBACK_DEADLINE = 12
 
 
 class Radio:
     """Bounded public metadata pools; private filtering and last radio list."""
 
-    def __init__(self, accounts, catalog, library):
+    def __init__(self, accounts, catalog, library, lastfm=None, client=None):
         self.accounts, self.catalog, self.library = accounts, catalog, library
+        self.lastfm, self.client = lastfm, client
         self.cache = OrderedDict()
         self.tasks = {}
         self.warmed = OrderedDict()
@@ -35,16 +40,69 @@ class Radio:
         await asyncio.gather(*tasks, return_exceptions=True)
         self.tasks.clear()
 
-    async def fetch(self, source):
+    async def fallback(self, source):
+        """Public suggestions, strictly matched audio; retain partial work."""
+        if (
+            not self.lastfm
+            or not self.lastfm.configured
+            or self.client is None
+        ):
+            return []
+        seed = self.catalog.read(identity("song", source), "song")["document"]
+        if not seed.get("artist"):
+            return []
+        songs, seen = [], {recording_key(seed["artist"], seed["title"])}
+        try:
+            async with asyncio.timeout(FALLBACK_DEADLINE):
+                rows = await self.lastfm.taste_rows(
+                    self.client,
+                    "track.getSimilar",
+                    artist=seed["artist"],
+                    track=seed["title"],
+                    autocorrect="0",
+                )
+                attempts = 0
+                for artist, title in rows:
+                    key = recording_key(artist, title)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    if attempts >= 10:
+                        break
+                    attempts += 1
+                    try:
+                        async with asyncio.timeout(2):
+                            song = await self.catalog.match_loved(
+                                artist, title
+                            )
+                    except ProviderError, TimeoutError:
+                        continue
+                    except CatalogError as error:
+                        if error.code != 70:
+                            break
+                        continue
+                    songs.append(song)
+                    await asyncio.sleep(0.25)
+        except LastfmRequestError, TimeoutError:
+            # Provider messages, URLs and session secrets stay out of logs.
+            logger.debug("Last.fm radio fallback incomplete")
+        return songs
+
+    async def fetch(self, source, fallback=False):
+        key = ("lastfm", source) if fallback else source
         try:
             async with asyncio.timeout(DEADLINE):
                 await asyncio.wait_for(self.slots.acquire(), timeout=1)
                 try:
-                    songs = await self.catalog.radio(source)
+                    if fallback:
+                        songs = await self.fallback(source)
+                    else:
+                        async with asyncio.timeout(PRIMARY_DEADLINE):
+                            songs = await self.catalog.radio(source)
                 finally:
                     self.slots.release()
-            self.cache[source] = (time.monotonic(), songs)
-            self.cache.move_to_end(source)
+            self.cache[key] = (time.monotonic(), songs)
+            self.cache.move_to_end(key)
             while len(self.cache) > 32:
                 self.cache.popitem(last=False)
             return songs
@@ -53,18 +111,21 @@ class Radio:
                 0, "Radio metadata timed out; retry later"
             ) from None
 
-    def task(self, source):
+    def task(self, source, fallback=False):
+        key = ("lastfm", source) if fallback else source
         if self.closed:
             raise CatalogError(0, "Radio is stopping")
-        if source in self.tasks:
-            return self.tasks[source]
+        if key in self.tasks:
+            return self.tasks[key]
         if len(self.tasks) >= 4:
             raise CatalogError(0, "Radio metadata busy; retry later")
-        task = self.tasks[source] = asyncio.create_task(self.fetch(source))
+        task = self.tasks[key] = asyncio.create_task(
+            self.fetch(source, fallback)
+        )
 
         def finished(done):
-            if self.tasks.get(source) is done:
-                del self.tasks[source]
+            if self.tasks.get(key) is done:
+                del self.tasks[key]
             # A disconnected caller or warm-only task still consumes errors.
             if not done.cancelled():
                 done.exception()
@@ -223,12 +284,29 @@ class Radio:
                     self.cache.move_to_end(source)
                     candidates = cached[1]
                 else:
-                    candidates = await asyncio.shield(self.task(source))
+                    try:
+                        candidates = await asyncio.shield(self.task(source))
+                    except CatalogError:
+                        candidates = []
                 result = self.filter(user, seed, candidates)
                 # Exhausted pool: allow a fresh YouTube radio at most once a
                 # minute, rather than returning the same recently played songs.
                 if not result and cached and cached[0] < time.monotonic() - 60:
-                    candidates = await asyncio.shield(self.task(source))
+                    try:
+                        candidates = await asyncio.shield(self.task(source))
+                    except CatalogError:
+                        candidates = []
+                    result = self.filter(user, seed, candidates)
+                if not result:
+                    fallback = self.cache.get(("lastfm", source))
+                    age = TTL if fallback and fallback[1] else 60
+                    if fallback and fallback[0] > time.monotonic() - age:
+                        self.cache.move_to_end(("lastfm", source))
+                        candidates = fallback[1]
+                    else:
+                        candidates = await asyncio.shield(
+                            self.task(source, fallback=True)
+                        )
                     result = self.filter(user, seed, candidates)
                 if not result:
                     raise CatalogError(
