@@ -384,6 +384,55 @@ Automated checks use mocked Last.fm responses and disposable storage. No real
 Last.fm scrobbles or loved imports have been sent by the agent; client/device
 acceptance remains manual. No new credentials or configuration variables are needed.
 
+## Artist top songs and radio review correction
+
+Feishin has separate **Favorite songs** (your hearts) and **Top songs** sections.
+The latter's **Community** tab now calls `getTopSongs`, accepting the artist name
+or catalog artist ID (`topSongsByArtistId` version 1). It uses YouTube Music's
+artist popular-song shelf, including recordings you have never saved. This is
+provider popularity, not a personal Last.fm ranking. ID takes precedence over
+name. Name-only requests require one exact case-insensitive artist match and
+reject ambiguous channel names. The response preserves provider order, removes
+duplicate/unavailable/video entries, caps at 50, and applies only your own heart
+and play-count decoration. It never queues downloads or favorites. Count zero
+and HEAD make no upstream requests. Missing artist shelves return an empty list.
+
+Public top-song metadata caches for 15 minutes across at most 32 artists. Opening
+a remote artist warms this metadata alongside the existing album listing. After
+restart or expiry it can be fetched again; a provider failure can reuse the
+previous entry for up to 24 hours after expiry. No new key, schema migration or
+paid provider is required. Available provider duration strings become seconds;
+unknown durations remain unknown. The artist's **Personal** tab and **Favorite
+songs** still reflect your own listening/hearts. Feishin's local favorite/personal
+views can fetch every artist album; we cannot redefine those client tabs as
+remote popularity without changing their meaning.
+
+A regression reproduced radio failing its one-second metadata admission limit
+when both browsing slots were occupied. Radio now has two separate metadata
+slots alongside the two browsing slots, matching its existing two-fetch bound.
+Maximum metadata subprocess concurrency is therefore four; individual response
+size/time limits and bounded radio task admission remain. This avoids starvation
+from album browsing while keeping provider work bounded. Fixed-category warning
+logs identify capacity, deadlines, provider failures or an entirely filtered
+pool without logging user IDs, credentials or provider URLs.
+
+Feishin **Start radio** consumes the returned similar-song array directly into
+its queue; no browser action is required. The server also updates its one stable
+private Radio fallback playlist, rather than creating a new list for each click.
+Saved/downloaded status does not gate radio. The current batch has up to 50 tracks;
+continuous automatic refill depends on the client. The server cannot push an
+unrequested queue change into a Subsonic client. Explicit removals and 24-hour
+recent-play exclusions can exhaust a pool; this is now identifiable in logs.
+
+For review, rebuild with `docker compose up -d --build`, reconnect Feishin to
+refresh extensions, and open a remote artist's **Top songs → Community**. Try
+**Start radio** on the agreed Daft Punk, Joji and OTOY recordings directly in
+Feishin, including a track not kept downloaded. Repeat while an artist page
+loads. If a click still does nothing, record the exact song and the fixed-category
+`Radio could not complete` log. Do not share generated client passwords or URLs
+containing credentials. These changes fix a reproduced contention path; they do
+not establish that every reported deployed-client failure has the same cause.
+
 ## Editable and downloaded playlists
 
 Create, rename, add/remove tracks, reorder and delete private playlists in a
@@ -758,7 +807,8 @@ the client after rebuilding so it reloads these capabilities.
 Implemented read endpoints support XML/JSON, GET/form POST, and `.view` aliases:
 
 - Public `getOpenSubsonicExtensions`: `apiKeyAuthentication`, `formPost` and
-  `songLyrics` v1. Authenticated `getLyricsBySongId` serves structured lyrics.
+  `songLyrics` v1 and `topSongsByArtistId` v1. Authenticated
+  `getLyricsBySongId` serves structured lyrics.
 - Authenticated `ping`, `getLicense`, and the caller's own `getUser` profile.
   Administrative account management stays in the browser.
 - `search3` (tag results), `search2` (folder-style album results), `getSong`,
@@ -1242,3 +1292,26 @@ mocked metadata/audio/lyrics only; no existing data volume or running service wa
 used. No real Last.fm or live audio-provider acceptance is claimed. No new
 security scan was run; earlier base/media scan limitations still apply. Actual
 Feishin playlist UI and iOS acceptance remain manual using the steps above.
+
+
+Iteration 11 review correction, 2026-10-29: added remote artist top songs and the
+artist-ID extension; isolated two radio metadata slots from two browsing slots;
+added safe radio failure categories. The slot-starvation regression failed before
+the fix and passes afterwards. Full suite:326 passed (124.00 s); subsequent focused
+artist/radio run:32 passed (9.42 s), same existing TestClient warning. No new schema,
+keys or dependencies. Live metadata-only checks using disposable synthetic account
+storage returned five Daft Punk top songs (0.865 s), and cold authenticated radio
+batches of48/48/49 songs for Daft Punk/Joji/OTOY (1.161/1.345/1.329 s); cached
+requests took0.005 s each. No audio or retention was created. Deployed-container
+provider-only checks also succeeded for all three seeds. These results do not
+establish the exact cause of every Feishin click failure; rebuilt-client retest
+remains necessary. Still reviewing iteration11; external imports have not started.
+
+
+Review image `lastbridge-iteration11-review` also passes a disposable network-none
+smoke as UID10001: artist top songs, existing playlist retention/restart/privacy,
+lyrics, radio, range seeking, saved replay and report deduplication. Ruff lint,
+formatting (46 files), direct 79-character and fixture-shadow scans, diff and
+Compose validation pass. Existing running service and user storage were not
+changed. Rebuild/reconnect and confirm the actual Feishin behavior before treating
+this review correction as client-accepted.

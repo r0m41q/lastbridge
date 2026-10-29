@@ -157,6 +157,7 @@ def test_public_extensions_only_advertise_implemented_features(
         {"name": "apiKeyAuthentication", "versions": [1]},
         {"name": "formPost", "versions": [1]},
         {"name": "songLyrics", "versions": [1]},
+        {"name": "topSongsByArtistId", "versions": [1]},
     ]
     root = fromstring(client.get("/rest/getOpenSubsonicExtensions").content)
     ns = {"s": "http://subsonic.org/restapi"}
@@ -344,6 +345,7 @@ def test_authentication_required_for_all_catalog_and_artwork(catalog_service):
         "getArtist",
         "getSong",
         "getMusicFolders",
+        "getTopSongs",
     ):
         assert (
             body(client.get("/rest/" + method + "?f=json"))["error"]["code"]
@@ -356,6 +358,37 @@ def test_authentication_required_for_all_catalog_and_artwork(catalog_service):
             == 50
         )
     assert provider.calls == []
+
+
+def test_radio_metadata_does_not_wait_for_album_browsing(monkeypatch):
+    provider = MetadataProvider()
+
+    class Process:
+        returncode = 0
+
+        async def communicate(self):
+            return b"", b""
+
+    async def spawn(*args, **kwargs):
+        return Process()
+
+    async def exchange(process, payload):
+        return b'{"data":{"tracks":[]}}'
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    monkeypatch.setattr(provider, "exchange", exchange)
+
+    async def exercise():
+        await provider.slots.acquire()
+        await provider.slots.acquire()
+        try:
+            result = await provider.fetch({"operation": "radio"})
+            assert result == {"tracks": []}
+        finally:
+            provider.slots.release()
+            provider.slots.release()
+
+    asyncio.run(exercise())
 
 
 def test_profile_roles_and_browsing_post(catalog_service):

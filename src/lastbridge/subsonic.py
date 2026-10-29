@@ -12,6 +12,7 @@ EXTENSIONS = [
     {"name": "apiKeyAuthentication", "versions": [1]},
     {"name": "formPost", "versions": [1]},
     {"name": "songLyrics", "versions": [1]},
+    {"name": "topSongsByArtistId", "versions": [1]},
 ]
 
 
@@ -92,6 +93,19 @@ async def dispatch(request, method, values, user):
     library = request.app.state.library
     user_id = user["id"]
     folder(values)
+    if method == "getTopSongs":
+        if "id" in values:
+            required(values, "id")
+        else:
+            required(values, "artist")
+        count = min(integer(values, "count", 50), 50)
+        songs = await catalog.top_songs(
+            user_id,
+            values.get("id"),
+            values.get("artist"),
+            fetch=request.method != "HEAD" and count > 0,
+        )
+        return {"topSongs": {"song": library.decorate(user_id, songs[:count])}}
     if method == "getLyricsBySongId":
         return {
             "lyricsList": {

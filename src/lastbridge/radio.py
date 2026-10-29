@@ -236,7 +236,22 @@ class Radio:
                     )
                 self.publish(user, seed, candidates, generation)
                 return self.library.decorate(user["id"], result[:count])
-        except CatalogError, TimeoutError, sqlite3.Error, OSError:
+        except (CatalogError, TimeoutError, sqlite3.Error, OSError) as error:
+            # Fixed categories only, without IDs, provider URLs or user data.
+            if isinstance(error, CatalogError):
+                reason = {
+                    "Metadata provider busy; retry shortly": "metadata busy",
+                    "Radio metadata busy; retry later": "radio capacity busy",
+                    "Radio metadata timed out; retry later": "timed out",
+                    "No unplayed radio tracks available": "no eligible tracks",
+                }.get(error.message, "metadata provider failed")
+            else:
+                reason = (
+                    "deadline exceeded"
+                    if isinstance(error, TimeoutError)
+                    else "storage unavailable"
+                )
+            logger.warning("Radio could not complete: %s", reason)
             # Same requested seed only: never masquerade a different radio
             # or another user's snapshot as this request's continuation.
             row = self.snapshot(user)

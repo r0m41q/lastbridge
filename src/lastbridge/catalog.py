@@ -72,6 +72,9 @@ class MetadataProvider:
     def __init__(self, timeout=30):
         self.timeout = timeout
         self.slots = asyncio.Semaphore(2)
+        # Artist pages fan out into album requests. Reserve independent bounded
+        # capacity for the foreground radio action so those cannot starve it.
+        self.radio_slots = asyncio.Semaphore(2)
 
     async def exchange(self, process, payload):
         process.stdin.write(json.dumps(payload).encode())
@@ -86,8 +89,13 @@ class MetadataProvider:
         return output
 
     async def fetch(self, payload):
+        slots = (
+            self.radio_slots
+            if payload.get("operation") == "radio"
+            else self.slots
+        )
         try:
-            await asyncio.wait_for(self.slots.acquire(), timeout=1)
+            await asyncio.wait_for(slots.acquire(), timeout=1)
         except TimeoutError:
             raise CatalogError(
                 0, "Metadata provider busy; retry shortly"
@@ -124,7 +132,7 @@ class MetadataProvider:
                 # Drain the killed worker's pipes; wait() alone can deadlock
                 # when unread stdout has paused the subprocess transport.
                 await process.communicate()
-            self.slots.release()
+            slots.release()
 
 
 def client_document(kind, document):
@@ -149,6 +157,119 @@ class Catalog:
         # Short-lived, bounded, per-user search snapshots stabilize pagination.
         # Queries are never persisted in the shared metadata database.
         self.searches = OrderedDict()
+        self.artist_tops = OrderedDict()
+
+    def remember_tops(self, artist, row):
+        songs, seen = [], set()
+        group = row.get("songs") or {}
+        if not isinstance(group, dict):
+            raise CatalogError()
+        rows = group.get("results", [])
+        if not isinstance(rows, list):
+            raise CatalogError()
+        for track in rows[:50]:
+            if not isinstance(track, dict):
+                continue
+            album = track.get("album")
+            if (
+                not isinstance(track.get("videoId"), str)
+                or not isinstance(track.get("title"), str)
+                or not 0 < len(track["title"]) <= 1024
+                or not isinstance(album, dict)
+                or not isinstance(album.get("id"), str)
+                or not SOURCE.fullmatch(album["id"])
+                or not isinstance(album.get("name"), str)
+                or not album["name"]
+            ):
+                continue
+            credits = track.get("artists")
+            if not isinstance(credits, list) or not any(
+                isinstance(a, dict) and a.get("id") == artist["source"]
+                for a in credits
+            ):
+                continue
+            if any(
+                not isinstance(a, dict) or not isinstance(a.get("name"), str)
+                for a in credits
+            ):
+                continue
+            credits = [
+                a
+                | {
+                    "id": a.get("id")
+                    if isinstance(a.get("id"), str)
+                    and SOURCE.fullmatch(a["id"])
+                    else None
+                }
+                for a in credits
+            ]
+            duration = number(track.get("duration_seconds"))
+            length = track.get("duration") or track.get("length")
+            if (
+                duration is None
+                and isinstance(length, str)
+                and re.fullmatch(r"\d{1,2}:\d{2}(?::\d{2})?", length)
+            ):
+                parts = [int(p) for p in length.split(":")]
+                if all(p < 60 for p in parts[1:]):
+                    duration = 0
+                    for part in parts:
+                        duration = duration * 60 + part
+            song = self.song(
+                track | {"duration_seconds": duration, "artists": credits}
+            )
+            if song and song["id"] not in seen:
+                songs.append(song)
+                seen.add(song["id"])
+        self.artist_tops[artist["source"]] = (time.monotonic() + 900, songs)
+        self.artist_tops.move_to_end(artist["source"])
+        while len(self.artist_tops) > 32:
+            self.artist_tops.popitem(last=False)
+        return songs
+
+    async def top_songs(self, user_id, item_id=None, name=None, *, fetch=True):
+        if item_id is not None:
+            artist = self.read(item_id, "artist")
+        else:
+            if not isinstance(name, str) or not 0 < len(name.strip()) <= 256:
+                raise CatalogError(10, "Required parameter: artist")
+            name = name.strip().casefold()
+            with self.accounts.connection() as connection:
+                candidates = [
+                    dict(r)
+                    for r in connection.execute(
+                        "SELECT * FROM catalog WHERE kind='artist'"
+                    )
+                    if json.loads(r["document"])["name"].strip().casefold()
+                    == name
+                ]
+            if not candidates and fetch:
+                result = await self.search(user_id, name, ["artists"])
+                candidates = [
+                    self.read(a["id"], "artist")
+                    for a in result["artist"]
+                    if a["name"].strip().casefold() == name
+                ]
+            if len(candidates) > 1:
+                raise CatalogError(70, "Artist name is ambiguous; use its ID")
+            if not candidates:
+                return []
+            artist = candidates[0]
+        cached = self.artist_tops.get(artist["source"])
+        if cached and cached[0] > time.monotonic():
+            self.artist_tops.move_to_end(artist["source"])
+            return cached[1]
+        if not fetch:
+            return []
+        try:
+            row = await self.provider.fetch(
+                {"operation": "artist", "source": artist["source"]}
+            )
+            return self.remember_tops(artist, row)
+        except CatalogError:
+            if cached and cached[0] > time.monotonic() - 86400:
+                return cached[1]
+            raise
 
     def read(self, item_id, kind=None):
         with self.accounts.connection() as connection:
@@ -470,6 +591,11 @@ class Catalog:
                 "duration": sum(s.get("duration", 0) for s in songs),
             }
         else:
+            try:
+                self.remember_tops(stored, row)
+            except CatalogError:
+                # Optional top songs must not break album enumeration.
+                pass
             albums = []
             seen = set()
             for group in ("albums", "singles"):
