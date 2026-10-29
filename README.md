@@ -384,6 +384,37 @@ Automated checks use mocked Last.fm responses and disposable storage. No real
 Last.fm scrobbles or loved imports have been sent by the agent; client/device
 acceptance remains manual. No new credentials or configuration variables are needed.
 
+## Video-seeded radio correction
+
+Live diagnostic logs identified empty eligible radio pools. Metadata-only probes
+of the actual recently played sources reproduced the cause: music-video seeds
+returned 49–50 music-video recommendations with no album metadata, which the
+server correctly rejected as official catalog audio. The earlier agreed test set
+used official-audio seeds, so it did not exercise this path.
+
+When a radio pool contains no usable official-audio rows, the worker now locates
+the original seed's public title and primary artist in that response and searches
+up to 20 official song results. It requires the same normalized title and artist,
+retaining live/remix/version qualifiers, then requests radio from the first exact
+official-audio match. This changes the recommendation anchor only; playback,
+favorites and stable IDs of the originally selected recording stay unchanged.
+Multiple same-title album releases follow provider relevance order for the radio
+anchor; no claim of recording/mastering equivalence or audio substitution is made.
+The worker does at most one additional search and one additional radio request,
+within the existing end-to-end radio deadline. Unmatched/ambiguous-version or
+malformed metadata is not replaced with a guessed artist or remix. Provider
+feedback/account tokens and signed URLs still do not cross the worker boundary.
+Normal official-audio radio does no additional work.
+
+A live temporary-storage probe now returns 50 official-audio candidates for each
+formerly failing video source: DOROFEEVA 747 (2.139 s), Ed Sheeran Shape of You
+(2.268 s), and OTOY Судоми (2.179 s). The previously working audio source still
+returns 50 (1.151 s). No audio was downloaded, and no real account or retention
+was changed. Rebuild and repeat Start radio in Feishin on those video-origin
+tracks. This specifically fixes the reproduced source mismatch; provider outages
+and fully excluded pools remain bounded failures. Favorite songs remains your
+hearts; remote popularity appears in Top songs → Community.
+
 ## Artist top songs and radio review correction
 
 Feishin has separate **Favorite songs** (your hearts) and **Top songs** sections.
@@ -1315,3 +1346,16 @@ formatting (46 files), direct 79-character and fixture-shadow scans, diff and
 Compose validation pass. Existing running service and user storage were not
 changed. Rebuild/reconnect and confirm the actual Feishin behavior before treating
 this review correction as client-accepted.
+
+
+Video-radio follow-up validation (2026-10-29): **328 tests pass** (127.38 s),
+including the new failing-before/passing-after video-to-audio radio regression
+and a remix/performer rejection case. The installed review image also passes
+live authenticated metadata-only checks for all three previously failing video
+seeds, returning49queue tracks each in2.876–3.164s cold and0.012–0.014s cached.
+Temporary synthetic accounts only, no Last.fm exchanges/audio/user-volume writes.
+Ruff lint and formatting of the changed worker/radio tests pass; full formatting
+still flags two existing slice-spacing lines in the user's current protocol file,
+which this fix preserves. No dependencies/schema/configuration changes. The
+running service is unchanged until the user rebuilds; Feishin acceptance remains
+pending. Suggested commit: `fix: recover radio for music-video seeds`.

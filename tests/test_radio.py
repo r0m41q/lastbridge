@@ -359,6 +359,53 @@ def test_worker_radio_call_and_metadata_allowlist(monkeypatch):
     assert result["tracks"][0]["videoType"] == "MUSIC_VIDEO_TYPE_ATV"
 
 
+def test_video_radio_reseeds_with_exact_official_audio(monkeypatch):
+    calls = []
+    audio_seed = track(42)
+    video_seed = SONG | {"album": None, "videoType": "MUSIC_VIDEO_TYPE_OMV"}
+
+    class Music:
+        def get_watch_playlist(self, **kwargs):
+            calls.append(kwargs["videoId"])
+            return {"tracks": [video_seed] if len(calls) == 1 else [track(1)]}
+
+        def search(self, query, **kwargs):
+            assert kwargs == {"filter": "songs", "limit": 20}
+            assert SONG["title"] in query
+            return [
+                audio_seed | {"title": SONG["title"] + " (Live)"},
+                audio_seed
+                | {
+                    "title": SONG["title"],
+                    "artists": [{"name": "Wrong Artist"}],
+                },
+                audio_seed | {"title": SONG["title"]},
+            ]
+
+    monkeypatch.setattr("ytmusicapi.YTMusic", Music)
+    result = execute({"operation": "radio", "source": SONG["videoId"]})
+    assert calls == [SONG["videoId"], audio_seed["videoId"]]
+    assert result["tracks"][0]["videoId"] == track(1)["videoId"]
+
+
+def test_video_radio_does_not_use_a_different_version(monkeypatch):
+    calls = []
+    video_seed = SONG | {"album": None, "videoType": "MUSIC_VIDEO_TYPE_OMV"}
+
+    class Music:
+        def get_watch_playlist(self, **kwargs):
+            calls.append(kwargs["videoId"])
+            return {"tracks": [video_seed]}
+
+        def search(self, query, **kwargs):
+            return [track(42, title=SONG["title"] + " (Remix)")]
+
+    monkeypatch.setattr("ytmusicapi.YTMusic", Music)
+    result = execute({"operation": "radio", "source": SONG["videoId"]})
+    assert len(calls) == 1
+    assert result["tracks"][0]["videoType"] == "MUSIC_VIDEO_TYPE_OMV"
+
+
 def test_listening_session_seek_save_replay_and_scrobble(radio_service):
     service, _ = radio_service
     client, app = service[:2]
