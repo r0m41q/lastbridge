@@ -106,6 +106,7 @@ class FakeProvider:
 def catalog_service(tmp_path):
     app = create_app(Settings(_env_file=None, data_dir=tmp_path / "data"))
     with TestClient(app) as client:
+        client.portal.call(app.state.radio.close)
         store = app.state.accounts
         keys = {}
         for index, name in enumerate(("admin", "alice", "unlinked")):
@@ -464,7 +465,7 @@ def test_migration_from_v1_preserves_accounts(tmp_path):
     migrated = Accounts(tmp_path)
     assert migrated.user("admin")["admin"] == 1
     with migrated.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
         assert (
             connection.execute("SELECT count(*) FROM catalog").fetchone()[0]
             == 0

@@ -11,6 +11,7 @@ from pathlib import Path
 from cryptography.fernet import Fernet
 
 from lastbridge.mix_schema import SCHEMA as MIX_SCHEMA
+from lastbridge.radio_schema import SCHEMA as RADIO_SCHEMA
 from lastbridge.sync_schema import SCHEMA as SYNC_SCHEMA
 
 USERNAME = re.compile(r"[a-z0-9][a-z0-9_.-]{0,63}\Z")
@@ -97,7 +98,7 @@ class Accounts:
         self.path.chmod(0o600)
         with self.transaction() as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 5:
+            if version > 6:
                 raise RuntimeError("Database is newer than this application")
             if version == 0:
                 for statement in SCHEMA:
@@ -152,6 +153,9 @@ class Accounts:
             if version < 5:
                 connection.execute(MIX_SCHEMA)
                 connection.execute("PRAGMA user_version=5")
+            if version < 6:
+                connection.execute(RADIO_SCHEMA)
+                connection.execute("PRAGMA user_version=6")
             check = connection.execute(
                 "SELECT value FROM credential_check"
             ).fetchone()[0]

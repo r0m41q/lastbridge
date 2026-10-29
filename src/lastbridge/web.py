@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from lastbridge.accounts import SESSION_SECONDS
+from lastbridge.catalog import CatalogError
 from lastbridge.lastfm import AUTH_VALUE, LastfmError
 
 router = APIRouter()
@@ -390,7 +391,7 @@ async def mixes_page(request: Request):
     mixes = request.app.state.mixes
     status = mixes.status(user["id"])
     body = (
-        '<p><a href="/">Your account</a></p>'
+        '<p><a href="/">Your account</a> · <a href="/radio">Radio</a></p>'
         "<p>Open Playlists in your music app. These lists are managed by "
         "the server. Mix generation stores metadata; it does not save audio. "
         "Heart a song to keep it downloaded.</p>"
@@ -450,6 +451,67 @@ async def refresh_mixes(request: Request):
             409,
         )
     return RedirectResponse("/mixes", status_code=303)
+
+
+@router.get("/radio")
+async def radio_page(request: Request):
+    user = current_user(request)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+    body = (
+        '<p><a href="/mixes">Personal mixes</a></p>'
+        "<p>Choose a song to start radio. Then open the Radio playlist in "
+        "your music app. This works when the app has no autoplay control. "
+        "Only your latest radio is kept. Changing it leaves an already loaded "
+        "queue alone. Generation may take up to 20 seconds.</p>"
+    )
+    radio = request.app.state.radio.playlist(user)
+    if radio:
+        body += f"<p>{escape(radio['name'])}: {radio['songCount']} tracks.</p>"
+    songs = request.app.state.library.collection(user["id"])["song"][:100]
+    for playlist in request.app.state.mixes.playlists(user):
+        songs += request.app.state.mixes.playlists(user, playlist["id"])[
+            "entry"
+        ]
+    choices = {s["id"]: s for s in songs}
+    if choices and user["link_status"] in ("linked", "relink"):
+        body += '<form method="post" action="/radio">' + csrf_field(
+            user["csrf"]
+        )
+        body += '<label>Starting song <select name="id">'
+        for song in list(choices.values())[:100]:
+            label = song.get("artist", "") + " — " + song["title"]
+            body += (
+                f'<option value="{escape(song["id"])}">'
+                f"{escape(label)}</option>"
+            )
+        body += (
+            '</select></label><button type="submit">'
+            "Start radio</button></form>"
+        )
+    else:
+        body += (
+            "<p>Link Last.fm and wait for personal mixes, "
+            "or save a song first.</p>"
+        )
+    return page("Radio", body)
+
+
+@router.post("/radio")
+async def radio_action(request: Request):
+    user, values = await protected_form(request)
+    if user["link_status"] not in ("linked", "relink"):
+        raise HTTPException(403, "Link Last.fm first")
+    try:
+        await request.app.state.radio.songs(user, values.get("id", ""), 50)
+    except CatalogError as failure:
+        return page(
+            "Radio unavailable",
+            f"<p>{escape(failure.message)}</p>"
+            '<a href="/radio">Back to radio</a>',
+            503,
+        )
+    return RedirectResponse("/radio", status_code=303)
 
 
 @router.post("/admin/users")

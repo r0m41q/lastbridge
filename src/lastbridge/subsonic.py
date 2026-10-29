@@ -93,7 +93,22 @@ async def dispatch(request, method, values, user):
         if request.method == "HEAD":
             raise CatalogError(10, "Use GET or POST to report playback")
         request.app.state.sync.report(user, values)
+        if values.get("submission") == "false" and values.get("id"):
+            request.app.state.radio.warm(user_id, values["id"][-1])
         return {}
+    if method in ("getSimilarSongs", "getSimilarSongs2"):
+        if request.method == "HEAD":
+            raise CatalogError(10, "Use GET or POST to select radio")
+        songs = await request.app.state.radio.songs(
+            user,
+            required(values, "id"),
+            min(integer(values, "count", 50), 50),
+        )
+        return {
+            "similarSongs2" if method.endswith("2") else "similarSongs": {
+                "song": songs
+            }
+        }
     if method in ("star", "unstar"):
         if request.method == "HEAD":
             raise CatalogError(10, "Use GET or POST to change favorites")
@@ -252,7 +267,7 @@ async def dispatch(request, method, values, user):
         elif kind in ("recent", "frequent", "highest"):
             # Album history aggregation and ratings remain future work.
             albums = []
-        albums = albums[offset: offset + size]
+        albums = albums[offset : offset + size]
         if method == "getAlbumList":
             albums = [directory_album(a) for a in albums]
         return {
@@ -270,10 +285,18 @@ async def dispatch(request, method, values, user):
     if method == "getPlaylists":
         if values.get("username", user["username"]) != user["username"]:
             raise CatalogError(50, "Access denied")
+        playlists = request.app.state.mixes.playlists(user)
+        radio = request.app.state.radio.playlist(user)
         return {
-            "playlists": {"playlist": request.app.state.mixes.playlists(user)}
+            "playlists": {"playlist": playlists + ([radio] if radio else [])}
         }
     if method == "getPlaylist":
+        item_id = required(values, "id")
+        if item_id == request.app.state.radio.playlist_id(user_id):
+            radio = request.app.state.radio.playlist(user, detail=True)
+            if radio is None:
+                raise CatalogError(70, "Playlist not found")
+            return {"playlist": radio}
         return {
             "playlist": request.app.state.mixes.playlists(
                 user, required(values, "id")
@@ -313,7 +336,7 @@ async def dispatch(request, method, values, user):
             else {"artist": [], "album": [], "song": []}
         )
         result = {
-            k: results[k][offset: offset + count]
+            k: results[k][offset : offset + count]
             for k, (offset, count) in pages.items()
         }
         if method == "search2":
@@ -377,6 +400,8 @@ async def dispatch(request, method, values, user):
             integer(values, "maxBitRate", 0)
             if values.get("timeOffset", "0") not in ("0", "0.0"):
                 raise CatalogError(0, "Use HTTP Range to seek source audio")
+        if method == "stream" and request.method != "HEAD":
+            request.app.state.radio.warm(user_id, song["id"])
         return await request.app.state.audio.response(
             song["source"], download=method == "download"
         )

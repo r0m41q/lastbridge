@@ -18,6 +18,33 @@ def execute(payload):
         return music.get_album(payload["source"])
     if operation == "artist":
         return music.get_artist(payload["source"])
+    if operation == "radio":
+        result = music.get_watch_playlist(
+            videoId=payload["source"], radio=True, limit=50
+        )
+        # Only public metadata crosses the worker boundary. Ignore tokens,
+        # counterparts, browse links and provider playlist/session state.
+        return {
+            "tracks": [
+                {
+                    key: row[key]
+                    for key in (
+                        "videoId",
+                        "title",
+                        "artists",
+                        "album",
+                        "videoType",
+                        "length",
+                        "duration_seconds",
+                        "thumbnail",
+                        "isAvailable",
+                    )
+                    if key in row
+                }
+                for row in result["tracks"][:100]
+                if isinstance(row, dict)
+            ]
+        }
     raise ValueError("Unknown operation")
 
 

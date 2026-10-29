@@ -5,8 +5,8 @@ clients. Python service, with YouTube Music as the first music provider.
 
 **Current scope: accounts, Last.fm linking, catalog browsing, audio playback,
 seeking/downloads, private favorites, shared permanent audio retention,
-Last.fm scrobbling, resumable loved-track imports, and personal mix playlists.**
-Radio continuation arrives in a later iteration. The user confirmed
+Last.fm scrobbling, resumable loved-track imports, personal mix playlists,
+and YouTube Music radio continuation.** The user confirmed
 Feishin browsing, playback, seeking, and downloading; Amperfy testing is deferred.
 Favorites, Last.fm sync, and personal mixes have manual review steps below.
 
@@ -123,8 +123,8 @@ Last.fm linking, and 0 for unimplemented endpoints. Music clients require an
 initial link; revoked Last.fm authorization pauses delivery while preserving
 local playback. Administration remains accessible before linking.
 
-SQLite schema version 5 is created transactionally on first startup; versions 1,
-2, 3 and 4 are upgraded automatically without changing accounts, credentials or catalog
+SQLite schema version 6 is created transactionally on first startup; versions 1,
+2, 3, 4 and 5 upgrade automatically without changing accounts, credentials or catalog
 identities. Back up the data volume before upgrading. Newer schema
 versions are refused. Browser passwords use salted scrypt; browser session tokens
 and callback state are stored as SHA-256 digests. The generated client credential
@@ -141,7 +141,7 @@ use Secure when the configured public origin is HTTPS.
 To preserve downloaded favorites as well as membership, include `data/saved/`
 with its audio files and manifests in that stopped-volume backup. Restoring only
 SQLite and the credential key preserves save intent but requires reacquisition of
-missing audio from the provider. Older application versions cannot open schema 5;
+missing audio from the provider. Older application versions cannot open schema 6;
 restore the matching pre-upgrade backup for a rollback.
 
 The implementation follows [Last.fm web authorization](https://www.last.fm/api/webauth)
@@ -363,7 +363,7 @@ the page shows up to 200 unmatched/removed records and the latest 100 reports.
 The database retains all deduplication records and import/removal intent; no
 history pruning or total metadata quota is implemented yet.
 
-For review, back up the stopped data volume before upgrading to schema 5, then
+For review, back up the stopped data volume before upgrading to schema 6, then
 rebuild with `docker compose up -d --build`. Upgrading automatically starts imports
 for configured linked accounts and may grow permanent storage. Check the sync
 page and pause imports there if needed.
@@ -453,8 +453,7 @@ pauses refreshes while existing playlists and cached playback remain available.
 Open `/mixes` from the account page to see counts, last successful refresh and
 errors, or request a refresh. Manual requests require browser session/CSRF and
 have a five-minute cooldown. Refreshing does not rewrite a queue already loaded
-by a client. This iteration does not provide automatic endless radio or custom
-client home-screen sections.
+by a client. Custom client home-screen sections remain outside the standard API.
 
 Review after backing up the stopped whole data volume and rebuilding with
 `docker compose up -d --build`:
@@ -472,6 +471,94 @@ Automated tests use synthetic Last.fm data and mocked audio acquisition. Real
 recommendation coverage, latency and Feishin presentation remain user acceptance
 checks; Amperfy/device testing is still explicitly deferred. No live credentials
 or accounts were used by the agent for this iteration.
+
+## Radio and queue continuation
+
+Use a music client's song/album/artist radio action when available. Lastbridge
+supports [getSimilarSongs](https://opensubsonic.netlify.app/docs/endpoints/getsimilarsongs/)
+and [getSimilarSongs2](https://opensubsonic.netlify.app/docs/endpoints/getsimilarsongs2/)
+with JSON, XML, form POST and `.view` routes. Both accept catalog song, album and
+artist IDs; accepting song/album IDs on the second endpoint is an additional
+compatibility convenience. `count` defaults to 50 and is capped at 50; zero returns
+no songs, malformed/negative values fail. HEAD cannot select radio.
+
+The legacy protocol describes Last.fm artist similarity. This implementation uses
+YouTube Music's anonymous
+[watch radio](https://ytmusicapi.readthedocs.io/en/stable/reference/watch.html)
+to continue a recording, while Last.fm taste still drives the personal mixes.
+Songs seed directly. Albums use their first available track; artists use a known
+catalog track, or the first available track on their first returned release.
+Artist/album hydration is bounded by the same request deadline. An unavailable
+seed fails rather than silently starting unrelated radio.
+
+Only available official album audio is accepted. Video/unknown-type rows,
+malformed metadata and tracks of unknown/short duration are omitted; official
+album recordings with a live/remix title retain that version. Duplicate recording
+identities and IDs, the seed itself, local removals, and this user's local
+starts/completed reports within the last 24 hours are excluded. A start helps
+avoid queue repetition without counting as a completed listen. This filter does
+not fetch the full remote Last.fm listening history. Different users can receive
+different results from the same public recommendation pool.
+
+Public metadata pools contain at most 50 songs, with a 15-minute lifetime and a
+32-seed LRU bound. Fetches are shared per source, at most four pending and two
+running, using the existing bounded metadata subprocess. The entire request has
+a 20-second deadline, including artist/album hydration. Exhausted cached pools
+can fetch another radio after one minute; no recently played song is reinserted
+just to fill the count. A short result or unavailable-radio response is possible.
+These are continuation batches, not a guarantee of infinite playback in every app.
+
+Starting a stream or reporting `submission=false` warms radio metadata without
+waiting for it. Warming is limited to once a minute per user (128-user LRU),
+shares the above limits, and never downloads speculative audio, records a play,
+creates favorites, or changes the selected radio playlist. Downloads and HEAD
+requests do not warm radio. No audio prefetch is enabled.
+
+After an explicit successful radio request, **Radio · starting song** appears as
+an additional private, read-only playlist. Its ID is stable, and only the user's
+latest selection is retained in schema 6. Open `/radio` from `/mixes` to start it
+from saved or personal-mix songs when the music client has no radio control.
+The browser action requires a session/CSRF token. It changes the server playlist,
+not an already loaded client queue. Recent plays/removals are filtered again when
+the playlist is read; it does not refill itself without another radio request.
+
+The snapshot survives restart. Provider outages can reuse the same user's last
+successful snapshot for that seed, with current exclusions applied. A different
+seed is never silently substituted. Snapshots bind the linked Last.fm identity;
+switching identity hides the old list and prevents in-flight old publication.
+Existing snapshots remain readable after a relink is requested. Provider tokens,
+links, counterparts and credentials are never stored in the radio snapshot.
+
+Host measurements on 2026-10-29 used anonymous public access, disposable storage,
+and the agreed three complete AAC recordings. Each radio returned 49 eligible
+tracks after excluding the seed. No live Last.fm credentials were used.
+
+| Recording | Cold radio metadata | Cached radio | Cold complete audio | Cached audio |
+| --- | ---: | ---: | ---: | ---: |
+| Daft Punk — Instant Crush | 1.412 s | 0.004 s | 2.827 s | <0.001 s |
+| Joji — PIXELATED KISSES | 1.076 s | 0.004 s | 2.174 s | <0.001 s |
+| OTOY — Судоми | 1.275 s | 0.004 s | 2.066 s | <0.001 s |
+
+Audio timing includes acquisition and complete decode validation before the
+server can deliver bytes. It does not measure audible client buffering, gapless
+transition or deployment-network latency. Metadata timing measures server radio
+selection; metadata warming can remove that work from a later continuation
+request. These measurements justify retaining metadata-only warming for now,
+without promising that every next track starts instantly.
+
+Manual acceptance after a stopped-volume backup and `docker compose up -d --build`:
+
+1. In Feishin, start a personal mix or search result, play and seek. Use its radio
+   action and check related tracks load without the seed or recent repetitions.
+2. Heart a continuation, check `/library` reaches saved, and replay it. Enable
+   server scrobbling, listen past the threshold, and check `/lastfm/sync` plus your
+   Last.fm history for one report. Disable any duplicate direct scrobbler.
+3. Open `/radio` in the browser, select a starting song, and load the resulting
+   Radio playlist in the client. Restart and check it persists. Another account
+   must have its own selection and exclusions.
+4. Record first audio and next-track delay on the actual deployment/client;
+   report which autoplay controls work. Amperfy testing remains explicitly
+   deferred, and no automatic iOS/Feishin UI acceptance is claimed here.
 
 Host acquisition on 2026-10-28 verified all six complete renditions, with no
 10-second clipping. Initial download times were 1.9–3.3 seconds, before adding
@@ -936,3 +1023,17 @@ UTF-8/XML responses, no automatic audio pins and interrupted-refresh recovery.
 Real recommendation coverage, latency and client presentation remain manual review
 items. No live credentials, existing data volumes or actual Last.fm requests were
 used; no new security scan was performed.
+
+
+Iteration 9, 2026-10-29: song/album/artist radio, private recent-play exclusions,
+bounded metadata warming, durable latest-radio playlist and browser fallback.
+All 255 tests pass in 104.44s, including 22 radio cases and a complete simulated
+play/seek/continue/heart/save/replay/scrobble session. Ruff lint/format (39 files),
+direct Python line-length and fixture-import checks, diff and Compose checks pass.
+Live anonymous YouTube radio and all three agreed full AAC files succeeded using
+disposable storage; measurements are above. A network-disabled installed Docker
+image also passed as UID10001 with synthetic accounts and mocked providers:
+schema6, radio/seek/save/replay/report dedup, private filtering and restart.
+No live Last.fm credentials or writes, existing data volume, or user service
+restart was used. Real client radio/autoplay and audible next-track delay remain
+manual checks; Amperfy deferred. No audio prefetch or new security scan.

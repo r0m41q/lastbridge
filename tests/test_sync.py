@@ -61,6 +61,7 @@ def sync_service(tmp_path, monkeypatch):
         )
     )
     with TestClient(app) as client:
+        client.portal.call(app.state.radio.close)
         client.portal.call(app.state.mixes.close)
         client.portal.call(app.state.sync.close)
         client.portal.call(app.state.library.close)
@@ -566,7 +567,7 @@ def test_v3_migration_preserves_favorites_credentials_and_audio_intent(
     )
     assert Catalog(migrated).read(song["id"])["document"] == song
     with migrated.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
         assert (
             connection.execute("SELECT count(*) FROM favorites").fetchone()[0]
             == 1
