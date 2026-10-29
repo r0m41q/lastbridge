@@ -6,7 +6,7 @@ from xml.etree.ElementTree import fromstring
 import httpx
 import pytest
 import test_sync
-from test_accounts import csrf, login
+from test_accounts import csrf, drop_playlist_tables, login
 from test_catalog import SONG, body, get
 from test_sync import rows, run, uid
 
@@ -149,7 +149,17 @@ def test_json_form_xml_metadata_and_read_only(mix_service):
     )
     for method in ("createPlaylist", "updatePlaylist", "deletePlaylist"):
         assert (
-            body(get(service, method, playlistId=item["id"]))["error"]["code"]
+            body(
+                get(
+                    service,
+                    method,
+                    **{
+                        "id"
+                        if method == "deletePlaylist"
+                        else "playlistId": item["id"]
+                    },
+                )
+            )["error"]["code"]
             == 50
         )
     assert body(get(service, "getPlaylist"))["error"]["code"] == 10
@@ -368,6 +378,7 @@ def test_v4_upgrade_preserves_sync_and_saved_state(mix_service):
         for name in ("favorites", "save_jobs", "scrobbles", "love_imports")
     }
     with app.state.accounts.transaction() as connection:
+        drop_playlist_tables(connection)
         connection.execute("DROP TABLE lyrics")
         connection.execute("DROP TABLE radio")
         connection.execute("DROP TABLE mixes")
@@ -380,7 +391,7 @@ def test_v4_upgrade_preserves_sync_and_saved_state(mix_service):
         == "admin"
     )
     with migrated.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
         assert (
             connection.execute("SELECT count(*) FROM mixes").fetchone()[0] == 0
         )

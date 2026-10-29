@@ -160,7 +160,6 @@ async def dispatch(request, method, values, user):
                         "admin",
                         "settings",
                         "upload",
-                        "playlist",
                         "comment",
                         "podcast",
                         "jukebox",
@@ -169,6 +168,7 @@ async def dispatch(request, method, values, user):
                     )
                 },
                 "coverArtRole": True,
+                "playlistRole": True,
                 "streamRole": True,
                 "downloadRole": True,
             }
@@ -297,24 +297,40 @@ async def dispatch(request, method, values, user):
         if values.get("username", user["username"]) != user["username"]:
             raise CatalogError(50, "Access denied")
         playlists = request.app.state.mixes.playlists(user)
+        playlists += request.app.state.playlists.local(user)
         radio = request.app.state.radio.playlist(user)
         return {
             "playlists": {"playlist": playlists + ([radio] if radio else [])}
         }
     if method == "getPlaylist":
-        item_id = required(values, "id")
-        if item_id == request.app.state.radio.playlist_id(user_id):
-            radio = request.app.state.radio.playlist(user, detail=True)
-            if radio is None:
-                raise CatalogError(70, "Playlist not found")
-            return {"playlist": radio}
         return {
-            "playlist": request.app.state.mixes.playlists(
+            "playlist": request.app.state.playlists.get(
                 user, required(values, "id")
             )
         }
     if method in ("createPlaylist", "updatePlaylist", "deletePlaylist"):
-        raise CatalogError(50, "Generated playlists are read only")
+        if request.method == "HEAD":
+            raise CatalogError(10, "Use GET or POST to edit playlists")
+        playlists = request.app.state.playlists
+        if method == "createPlaylist":
+            if "playlistId" in values and not values["playlistId"]:
+                raise CatalogError(10, "Required parameter: playlistId")
+            return {
+                "playlist": await playlists.create(
+                    user,
+                    values.get("name"),
+                    values.get("songId", []),
+                    values.get("playlistId"),
+                )
+            }
+        item_id = required(
+            values, "playlistId" if method == "updatePlaylist" else "id"
+        )
+        if method == "updatePlaylist":
+            await playlists.update(user, item_id, values)
+        else:
+            await playlists.delete(user, item_id)
+        return {}
     if method in ("search2", "search3"):
         if "query" not in values:
             raise CatalogError(10, "Required parameter: query")
@@ -429,7 +445,15 @@ async def endpoint(request: Request, method: str):
             if method in ("star", "unstar")
             else frozenset({"id", "time"})
             if method == "scrobble"
+            else frozenset({"songId", "songIdToAdd", "songIndexToRemove"})
+            if method in ("createPlaylist", "updatePlaylist")
             else frozenset(),
+            field_limit=2048
+            if method in ("createPlaylist", "updatePlaylist")
+            else 128,
+            body_limit=262144
+            if method in ("createPlaylist", "updatePlaylist")
+            else None,
         )
     except HTTPException:
         return reply({}, 10, "Invalid request parameters")

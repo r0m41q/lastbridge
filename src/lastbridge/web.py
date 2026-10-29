@@ -37,7 +37,9 @@ def form(action: str, csrf: str, label: str) -> str:
     )
 
 
-async def parameters(request: Request, multiple=frozenset()) -> dict:
+async def parameters(
+    request: Request, multiple=frozenset(), *, field_limit=128, body_limit=None
+) -> dict:
     pairs = list(request.query_params.multi_items())
     if request.method == "POST":
         if request.headers.get("content-type", "").split(";")[0] != (
@@ -47,20 +49,24 @@ async def parameters(request: Request, multiple=frozenset()) -> dict:
         body = bytearray()
         async for chunk in request.stream():
             body.extend(chunk)
-            if len(body) > (16384 if multiple else 4096):
+            if len(body) > (
+                body_limit
+                if body_limit is not None
+                else (16384 if multiple else 4096)
+            ):
                 raise HTTPException(413, "Form too large")
         try:
             pairs.extend(
                 parse_qsl(
                     body.decode(),
                     keep_blank_values=True,
-                    max_num_fields=128 if multiple else 32,
+                    max_num_fields=field_limit if multiple else 32,
                 )
             )
         except ValueError, UnicodeError:
             raise HTTPException(400, "Invalid form") from None
     result = {}
-    if multiple and len(pairs) > 128:
+    if multiple and len(pairs) > field_limit:
         raise HTTPException(400, "Too many parameters")
     for key, value in pairs:
         if (key in result and key not in multiple) or len(value) > 2048:
@@ -178,6 +184,7 @@ async def account(request: Request):
     else:
         body += "<p>Link Last.fm before connecting a music client.</p>"
     if user["link_status"] in ("linked", "relink"):
+        body += '<p><a href="/playlists">Playlists and kept downloads</a></p>'
         body += '<p><a href="/mixes">Personal mixes and refresh status</a></p>'
         body += (
             '<p><a href="/lastfm/sync">Last.fm import '
@@ -232,7 +239,8 @@ async def library_page(request: Request):
         "<p>Song hearts save a recording; album hearts save the available "
         "album tracks. Artist hearts are bookmarks. Your favorites stay "
         "saved if a download fails. Unheart in your music app to release "
-        "your copy; other users keep theirs.</p>"
+        "your favorite pin; other users and downloaded playlists keep theirs. "
+        '<a href="/playlists">Manage playlist downloads</a>.</p>'
     )
     if downloads:
         body += (
@@ -254,7 +262,8 @@ async def library_page(request: Request):
     else:
         body += (
             "<p>No saved recordings yet. Heart a song or album "
-            "in your music app.</p>"
+            'in your music app or <a href="/playlists">'
+            "keep a playlist</a>.</p>"
         )
     return page("Saved library", body)
 
@@ -435,6 +444,115 @@ async def mixes_page(request: Request):
     else:
         body += "<p>Link Last.fm to start generating your mixes.</p>"
     return page("Personal mixes", body)
+
+
+@router.get("/playlists")
+async def playlists_page(request: Request):
+    user = current_user(request)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+    if user["link_status"] not in ("linked", "relink"):
+        raise HTTPException(403, "Link Last.fm first")
+    playlists = request.app.state.playlists
+    local = playlists.local(user)
+    downloaded = playlists.downloaded(user)
+    body = (
+        '<p><a href="/">Your account</a> · <a href="/library">Downloads</a>'
+        ' · <a href="/mixes">Personal mixes</a></p>'
+        "<p>Edit tracks and their order in your music app. Ordinary playlists "
+        "store references only. Keep downloaded queues tracks for permanent "
+        "server storage, including later additions. This does not download "
+        "anything onto your phone or add hearts. Download progress and retry "
+        "are on the Downloads page.</p>"
+        "<p>Releasing a playlist keeps its track list. Audio stays retained "
+        "while any favorite or downloaded playlist needs it; otherwise it "
+        "returns to the temporary cache. "
+        "Loaded client queues are unchanged.</p>"
+        '<form method="post" action="/playlists/create">'
+        + csrf_field(user["csrf"])
+        + '<label>Name <input name="name" required maxlength="200"></label>'
+        '<button type="submit">Create empty playlist</button></form><ul>'
+    )
+    for item in local:
+        item_id = item["id"]
+        kept = item_id in downloaded
+        body += (
+            f"<li>{escape(item['name'])}: {item['songCount']} tracks. "
+            + ("Kept downloaded." if kept else "Metadata only.")
+            + form(
+                f"/playlists/{item_id}/release"
+                if kept
+                else f"/playlists/{item_id}/keep",
+                user["csrf"],
+                "Release downloads" if kept else "Keep downloaded",
+            )
+            + form(
+                f"/playlists/{item_id}/delete", user["csrf"], "Delete playlist"
+            )
+            + "</li>"
+        )
+    body += "</ul><h2>Copy a playlist</h2><p>Copies are independent, editable "
+    body += "snapshots. Later source refreshes do not change the copy.</p>"
+    choices = local + request.app.state.mixes.playlists(user)
+    radio = request.app.state.radio.playlist(user)
+    if radio:
+        choices.append(radio)
+    if choices:
+        body += (
+            '<form method="post" action="/playlists/copy">'
+            + csrf_field(user["csrf"])
+            + '<label>Source <select name="source">'
+        )
+        for item in choices:
+            body += (
+                f'<option value="{item["id"]}">{escape(item["name"])}</option>'
+            )
+        body += (
+            '</select></label><label>Copy name <input name="name" '
+            'required maxlength="200"></label>'
+            '<button type="submit">Create editable copy</button></form>'
+        )
+    return page("Playlists", body)
+
+
+@router.post("/playlists/{action}")
+async def new_playlist(request: Request, action: str):
+    user, values = await protected_form(request)
+    if user["link_status"] not in ("linked", "relink"):
+        raise HTTPException(403, "Link Last.fm first")
+    playlists = request.app.state.playlists
+    try:
+        if action == "create":
+            await playlists.create(user, values.get("name"), [])
+        elif action == "copy":
+            await playlists.copy(
+                user, values.get("source", ""), values.get("name")
+            )
+        else:
+            raise HTTPException(404, "Action not found")
+    except CatalogError as error:
+        raise HTTPException(400, error.message) from None
+    return RedirectResponse("/playlists", status_code=303)
+
+
+@router.post("/playlists/{item_id}/{action}")
+async def playlist_action(request: Request, item_id: str, action: str):
+    user, _ = await protected_form(request)
+    if user["link_status"] not in ("linked", "relink"):
+        raise HTTPException(403, "Link Last.fm first")
+    playlists = request.app.state.playlists
+    try:
+        if action in ("keep", "release"):
+            await playlists.keep(user, item_id, action == "keep")
+        elif action == "delete":
+            await playlists.delete(user, item_id)
+        else:
+            raise HTTPException(404, "Action not found")
+    except CatalogError as error:
+        raise HTTPException(
+            404 if error.code == 70 else 400, error.message
+        ) from None
+    return RedirectResponse("/playlists", status_code=303)
 
 
 @router.post("/mixes/refresh")

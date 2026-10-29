@@ -12,6 +12,7 @@ from cryptography.fernet import Fernet
 
 from lastbridge.lyrics_schema import SCHEMA as LYRICS_SCHEMA
 from lastbridge.mix_schema import SCHEMA as MIX_SCHEMA
+from lastbridge.playlist_schema import SCHEMA as PLAYLIST_SCHEMA
 from lastbridge.radio_schema import SCHEMA as RADIO_SCHEMA
 from lastbridge.sync_schema import SCHEMA as SYNC_SCHEMA
 
@@ -99,7 +100,7 @@ class Accounts:
         self.path.chmod(0o600)
         with self.transaction() as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 7:
+            if version > 8:
                 raise RuntimeError("Database is newer than this application")
             if version == 0:
                 for statement in SCHEMA:
@@ -160,6 +161,10 @@ class Accounts:
             if version < 7:
                 connection.execute(LYRICS_SCHEMA)
                 connection.execute("PRAGMA user_version=7")
+            if version < 8:
+                for statement in PLAYLIST_SCHEMA:
+                    connection.execute(statement)
+                connection.execute("PRAGMA user_version=8")
             check = connection.execute(
                 "SELECT value FROM credential_check"
             ).fetchone()[0]

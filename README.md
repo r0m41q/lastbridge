@@ -5,8 +5,8 @@ clients. Python service, with YouTube Music as the first music provider.
 
 **Current scope: accounts, Last.fm linking, catalog browsing, audio playback,
 seeking/downloads, private favorites, shared permanent audio retention,
-Last.fm scrobbling, resumable loved-track imports, personal mix playlists,
-YouTube Music radio continuation, and synchronized lyrics.** The user confirmed
+Last.fm scrobbling, resumable loved-track imports, personal mixes, editable
+playlists with optional downloads, radio continuation, and synchronized lyrics.** The user confirmed
 Feishin browsing, playback, seeking, and downloading; Amperfy testing is deferred.
 Favorites, Last.fm sync, and personal mixes have manual review steps below.
 
@@ -114,7 +114,7 @@ previous value in every app. It also works as an OpenSubsonic `apiKey` without a
 username. Legacy plain/`enc:` password and `md5(client_password + salt)` token
 authentication work with this same generated value. The browser password cannot
 authenticate protocol calls. Public extension discovery advertises API key
-authentication and form POST only; other extensions are not implemented yet.
+authentication, form POST, and structured song lyrics version 1.
 
 `/rest/ping` and `/rest/ping.view` support GET and URL-encoded form POST, XML
 (default) and JSON (`f=json`). Supply `v` and `c`. Errors use protocol responses:
@@ -123,9 +123,10 @@ Last.fm linking, and 0 for unimplemented endpoints. Music clients require an
 initial link; revoked Last.fm authorization pauses delivery while preserving
 local playback. Administration remains accessible before linking.
 
-SQLite schema version 7 is created transactionally on first startup; versions
-1–6 upgrade automatically without changing accounts, credentials, catalog IDs,
-favorites, sync progress, mixes or radio snapshots. Back up the data volume before upgrading. Newer schema
+SQLite schema version 8 is created transactionally on first startup; versions
+1–7 upgrade automatically without changing accounts, credentials, catalog IDs,
+favorites, sync progress, mixes, radio snapshots or cached lyrics. Back up the
+stopped data volume before upgrading. Newer schema
 versions are refused. Browser passwords use salted scrypt; browser session tokens
 and callback state are stored as SHA-256 digests. The generated client credential
 and Last.fm session key use Fernet authenticated encryption. The database and
@@ -138,10 +139,10 @@ same-origin referrer headers, escaped text, CSRF-protected forms, and HttpOnly
 session cookies; cookies
 use Secure when the configured public origin is HTTPS.
 
-To preserve downloaded favorites as well as membership, include `data/saved/`
+To preserve downloaded favorites and playlists as well as membership, include `data/saved/`
 with its audio files and manifests in that stopped-volume backup. Restoring only
 SQLite and the credential key preserves save intent but requires reacquisition of
-missing audio from the provider. Older application versions cannot open schema 7;
+missing audio from the provider. Older application versions cannot open schema 8;
 restore the matching pre-upgrade backup for a rollback.
 
 The implementation follows [Last.fm web authorization](https://www.last.fm/api/webauth)
@@ -267,8 +268,8 @@ saved audio fails startup for repair from backup, preserving the damaged files;
 a missing saved file is queued for reacquisition. Changing the global audio
 policy queues the new rendition for existing favorites and releases old-policy
 copies to the cache; compare AAC/Opus before accumulating a large saved library.
-Downloaded playlists, per-user size accounting, and fuller admin controls remain
-later iterations.
+Downloaded playlists are available through `/playlists`. Per-user size
+accounting and fuller admin controls remain later iterations.
 
 For this iteration's review, rebuild with `docker compose up -d --build`, then:
 
@@ -363,7 +364,7 @@ the page shows up to 200 unmatched/removed records and the latest 100 reports.
 The database retains all deduplication records and import/removal intent; no
 history pruning or total metadata quota is implemented yet.
 
-For review, back up the stopped data volume before upgrading to schema 7, then
+For review, back up the stopped data volume before upgrading to schema 8, then
 rebuild with `docker compose up -d --build`. Upgrading automatically starts imports
 for configured linked accounts and may grow permanent storage. Check the sync
 page and pause imports there if needed.
@@ -383,6 +384,82 @@ Automated checks use mocked Last.fm responses and disposable storage. No real
 Last.fm scrobbles or loved imports have been sent by the agent; client/device
 acceptance remains manual. No new credentials or configuration variables are needed.
 
+## Editable and downloaded playlists
+
+Create, rename, add/remove tracks, reorder and delete private playlists in a
+supporting music client. Lastbridge implements the OpenSubsonic
+[create/replace](https://opensubsonic.netlify.app/docs/endpoints/createplaylist/),
+[update](https://opensubsonic.netlify.app/docs/endpoints/updateplaylist/) and
+[delete](https://opensubsonic.netlify.app/docs/endpoints/deleteplaylist/)
+contracts. GET and URL-encoded form POST, `.view`, XML and JSON work. The user's
+profile advertises `playlistRole=true`. Generated mixes and radio return
+`readonly=true`; local lists return `readonly=false`. All lists stay private;
+requesting `public=true` returns error 50. Another user's list returns error 70,
+including for administrators. Sharing and external playlist imports are later
+work.
+
+Entries preserve order and duplicates. `createPlaylist` with `playlistId`
+replaces all entries atomically; omitting `songId` clears the list. Existing
+name/comment/retention policy remain unless an applicable field changes.
+`updatePlaylist` removes zero-based positions from the original list, then
+appends additions in supplied order. Repeated removal indices are applied once.
+Unknown/non-song IDs, invalid positions or an oversized result reject the whole
+edit. Names are 1–200 characters with non-whitespace content; comments allow up
+to 2,000 characters. XML-invalid controls are rejected. Lists support up to
+1,000 entries and 200 lists per user. Playlist mutation forms support up to
+2,048 fields/256 KiB; use form POST for large lists to avoid client/proxy URL
+length limits. Unrelated endpoints retain their smaller input limits.
+
+An ordinary playlist stores metadata only: it creates no favorite, download job,
+or permanent audio pin. Open `/playlists` from your account page to create an
+empty list or copy any of your local/generated lists into an independent editable
+snapshot. Copying a mix or radio preserves its currently visible track order;
+future source refreshes or radio selections do not change the copy. Copies start
+with **Keep downloaded** off, including copies of a kept list. A source with more
+than 1,000 entries must be narrowed in the client before copying.
+
+Choose **Keep downloaded** in the browser to queue permanent server copies of
+all tracks; later additions are included and removed tracks release their pins.
+This does not heart tracks or download them onto a phone. Kept tracks appear in
+your saved-library enumeration, even when they have no heart. Download status,
+failures and retry are on `/library`. Saved files remain outside the 1 GB
+temporary-cache budget; there is no application storage quota. Free disk space
+and the existing source-file/acquisition limits still apply.
+
+Favorites and kept playlists across all users share one recording/rendition and
+save job. Duplicate entries create one pin requirement. Turning off retention or
+deleting a list releases only its requirement; audio remains saved while another
+favorite or kept list needs it. After the last requirement and active transfer
+lease end, audio returns to the temporary cache and can be evicted. Playlist
+track IDs and already loaded client queues remain usable. Retention and job
+intent commit together and restart reconciliation recovers interrupted work.
+Deletion removes the list and entries; releasing downloads preserves the list.
+
+Feishin 1.17.0 source was inspected: it creates an empty list, appends/removes
+tracks through `updatePlaylist`, and replaces entries through `createPlaylist`
+for one reorder path. Another reorder path makes two separate remove/add
+requests. Each server request is atomic, but those two client requests are not
+one transaction; an interrupted client reorder can leave a partial list. Keep a
+copy of an important list before using such a client operation. Actual UI
+acceptance in Feishin and iOS clients remains manual.
+
+For review:
+
+1. Back up the stopped complete data volume (database, `credentials.key`, saved
+   audio and manifests) before the schema 8 upgrade. Run
+   `docker compose up -d --build` and reconnect Feishin to refresh permissions.
+2. Create a list in Feishin, add the agreed Daft Punk/Joji/OTOY recordings, change
+   their order, rename it, remove an entry and reload. Check order after restart.
+   Confirm ordinary creation does not queue downloads on `/library`.
+3. In `/playlists`, copy a generated mix/radio. Edit the copy in Feishin and
+   confirm the generated source remains read-only and unchanged.
+4. Keep a local list downloaded, check `/library`, add/remove tracks, then replay
+   and seek after completion/restart. Confirm hearts were not added. Release it
+   and confirm its track list remains.
+5. Keep the same track with a second account or a separate favorite. Release or
+   delete the first playlist while it plays. The other retention and playback
+   must survive; neither account can view or edit the other's lists.
+
 ## Personal mix playlists
 
 After linking Last.fm, open **Playlists** in your music app. Lastbridge exposes
@@ -391,7 +468,8 @@ four private, server-managed, read-only lists through
 [getPlaylist](https://opensubsonic.netlify.app/docs/endpoints/getplaylist/).
 Playlist IDs stay stable across refreshes and restarts. Each user's IDs and
 contents are separate; even administrators cannot read another user's mixes
-through these endpoints. Playlist create/edit/delete remains deferred.
+through these endpoints. Editable private playlists appear alongside these
+generated lists; see **Editable and downloaded playlists** below.
 
 | Playlist | Selection |
 | --- | --- |
@@ -654,7 +732,7 @@ These are observations of current provider coverage, not a guarantee for other
 releases or future availability. Feishin's structured-lyrics parser was inspected;
 actual display and audible synchronization have not been verified by the agent.
 
-Manual review after backing up the stopped data volume (schema 7 upgrade) and
+Manual review after backing up the stopped data volume (schema 8 upgrade) and
 running `docker compose up -d --build`:
 
 1. Reconnect Feishin so it refreshes extension discovery. Prefer server lyrics
@@ -688,8 +766,11 @@ Implemented read endpoints support XML/JSON, GET/form POST, and `.view` aliases:
 - Saved-library enumeration: `getMusicFolders`, `getArtists`, `getIndexes`,
   `getAlbumList`/`getAlbumList2`, `getGenres`, `getStarred`/`getStarred2`,
   `getPlaylists`, and `getScanStatus`. Saved songs and their parent albums/artists
-  populate these lists; genres and playlists remain empty for now. `getPlaylist`
-  returns not-found. `star`/`unstar` mutate the caller's private favorites.
+  populate these lists; genres remain empty. `getPlaylist` returns an owned
+  local playlist or generated mix/radio. `star`/`unstar` mutate private favorites.
+- Playlist mutations: `createPlaylist` (create or full replacement),
+  `updatePlaylist` (rename, comment, remove indices, append tracks), and
+  `deletePlaylist`. HEAD never mutates playlists.
 
 An empty/whitespace search query (also the literal `""` used by some clients)
 returns the user's saved library. A nonempty query searches anonymous YouTube
@@ -1130,3 +1211,34 @@ private filtering. Runtime dependencies, lock, Dockerfile and Compose unchanged;
 no new vulnerability scan. No real Last.fm requests/writes, user credentials,
 existing volumes or running service were used. Feishin and Amperfy display and
 actual audible lyric alignment remain manual review steps.
+
+
+Iteration 11, 2026-10-29: private editable playlists, ordered duplicate entries,
+full replacement and indexed edits, generated-list copies, browser retention
+controls, and shared favorite/playlist pins. Schema 8 adds local playlists and a
+retention view; versions 1–7 migrate while preserving earlier state. Ordinary
+playlists create no audio jobs. Kept tracks join saved-library browsing and the
+existing download status/retry worker without gaining hearts. Sharing remains
+unsupported. Copies are independent snapshots. Limits: 200 local lists per user,
+1,000 entries per list. A reproduced overlapping-reconciliation/cancelled-delete
+race is fixed by rereading durable retention membership after storage locking.
+
+Validation: **316 tests pass** (127.04 s), including 25 new playlist cases for
+ordering/duplicates/XML/form POST, atomic failures/limits, ownership/read-only
+lists/HEAD/authentication, copy privacy/CSRF, cross-user/favorite retention,
+editing kept lists, release during acquisition and active leases, failed-job
+retry, restart, migration, cancellation and stale-reconciliation recovery. One
+existing Starlette TestClient/HTTPX deprecation remains. Ruff lint and formatting
+pass across 45 Python files; every source/test line is at most 79 characters.
+Direct imported test helper/fixture parameter-shadow checks, diff and Compose
+validation pass. Flake8 is not installed, so no Flake8 run is claimed.
+
+Installed image `lastbridge-iteration11` built successfully with unchanged locked
+dependencies and media layers. A network-disabled disposable container runs as
+UID 10001 and passes schema 8, editable playlist ordering/duplicates/ownership,
+browser copy/keep/release, union pins/restart, lyrics JSON/XML, radio, range seek,
+saved replay and playback-report deduplication checks. Synthetic accounts and
+mocked metadata/audio/lyrics only; no existing data volume or running service was
+used. No real Last.fm or live audio-provider acceptance is claimed. No new
+security scan was run; earlier base/media scan limitations still apply. Actual
+Feishin playlist UI and iOS acceptance remain manual using the steps above.

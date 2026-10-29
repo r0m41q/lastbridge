@@ -567,7 +567,7 @@ def test_v3_migration_preserves_favorites_credentials_and_audio_intent(
     )
     assert Catalog(migrated).read(song["id"])["document"] == song
     with migrated.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
         assert (
             connection.execute("SELECT count(*) FROM favorites").fetchone()[0]
             == 1

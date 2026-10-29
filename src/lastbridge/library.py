@@ -23,7 +23,7 @@ class Library:
             return {
                 row[0]
                 for row in connection.execute(
-                    "SELECT DISTINCT c.source FROM favorite_tracks t "
+                    "SELECT DISTINCT c.source FROM retained_tracks t "
                     "JOIN catalog c ON c.id=t.song_id"
                 )
             }
@@ -193,27 +193,32 @@ class Library:
                 )
             # Commit job intent with favorites, before any cancellable storage
             # reconciliation. Restart can recover if that later step fails.
-            connection.execute(
-                "INSERT OR IGNORE INTO save_jobs(source,policy,state) "
-                "SELECT DISTINCT c.source,?,'pending' FROM favorite_tracks t "
-                "JOIN catalog c ON c.id=t.song_id WHERE t.user_id=?",
-                (self.policy, user_id),
-            )
-            connection.execute(
-                "DELETE FROM save_jobs WHERE policy!=? OR source NOT IN "
-                "(SELECT c.source FROM favorite_tracks t "
-                "JOIN catalog c ON c.id=t.song_id)",
-                (self.policy,),
-            )
+            self.schedule(connection)
         await self.reconcile()
         self.wake.set()
         return True
 
+    def schedule(self, connection):
+        connection.execute(
+            "INSERT OR IGNORE INTO save_jobs(source,policy,state) "
+            "SELECT DISTINCT c.source,?,'pending' FROM retained_tracks t "
+            "JOIN catalog c ON c.id=t.song_id",
+            (self.policy,),
+        )
+        connection.execute(
+            "DELETE FROM save_jobs WHERE policy!=? OR source NOT IN "
+            "(SELECT c.source FROM retained_tracks t "
+            "JOIN catalog c ON c.id=t.song_id)",
+            (self.policy,),
+        )
+
     async def reconcile(self, startup=False):
-        # Durable favorites are the source of pin truth. A failed promotion or
+        # Durable retention intents are pin truth. A failed promotion or
         # interrupted worker cannot lose intent; the next attempt uses them.
-        sources = self.sources()
         await self.audio.update_pins(self.pins())
+        # Storage locking can yield to a newer edit. Read durable membership
+        # again afterwards so this pass cannot restore a released download job.
+        sources = self.sources()
         with self.accounts.transaction() as connection:
             if startup:
                 connection.execute(
@@ -361,7 +366,7 @@ class Library:
                 "UPDATE save_jobs SET state='pending',attempts=0,error=NULL,"
                 "next_attempt=0 WHERE state IN ('pending','failed') "
                 "AND policy=? "
-                "AND source IN (SELECT c.source FROM favorite_tracks t "
+                "AND source IN (SELECT c.source FROM retained_tracks t "
                 "JOIN catalog c ON c.id=t.song_id WHERE t.user_id=?)",
                 (self.policy, user_id),
             )
@@ -371,7 +376,7 @@ class Library:
         with self.accounts.connection() as connection:
             rows = connection.execute(
                 "SELECT DISTINCT c.id,j.state,j.attempts,j.error FROM "
-                "favorite_tracks t JOIN catalog c ON c.id=t.song_id "
+                "retained_tracks t JOIN catalog c ON c.id=t.song_id "
                 "JOIN save_jobs j ON j.source=c.source AND j.policy=? "
                 "WHERE t.user_id=? ORDER BY c.id",
                 (self.policy, user_id),
@@ -395,7 +400,7 @@ class Library:
                 ids.update(
                     row[0]
                     for row in connection.execute(
-                        "SELECT DISTINCT song_id FROM favorite_tracks "
+                        "SELECT DISTINCT song_id FROM retained_tracks "
                         "WHERE user_id=?",
                         (user_id,),
                     )

@@ -299,6 +299,7 @@ class Mixes:
                 "name": name,
                 "owner": user["username"],
                 "public": False,
+                "readonly": True,
                 "comment": description + " Server-managed; read only.",
                 "created": date(stamp),
                 "changed": date(changed),

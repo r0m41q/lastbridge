@@ -7,6 +7,7 @@ from xml.etree.ElementTree import fromstring
 import httpx
 import pytest
 import test_catalog
+from test_accounts import drop_playlist_tables
 from test_catalog import body, get, search
 
 import lastbridge.lyrics as lyrics_module
@@ -413,12 +414,13 @@ def test_schema_six_upgrade_preserves_accounts_catalog_and_radio(
             "INSERT INTO radio VALUES(?,?,?,?,?,?)",
             (store.user("admin")["id"], "example", song["id"], "[]", 1, 2),
         )
+        drop_playlist_tables(connection)
         connection.execute("DROP TABLE lyrics")
         connection.execute("PRAGMA user_version=6")
     migrated = Accounts(store.path.parent)
     assert migrated.client_user({"apiKey": service[3]["admin"]})
     assert service[1].state.catalog.read(song["id"])["document"] == song
     with migrated.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
         assert connection.execute("SELECT * FROM radio").fetchone()["seed_id"]
         assert not connection.execute("SELECT * FROM lyrics").fetchall()

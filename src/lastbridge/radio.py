@@ -281,6 +281,7 @@ class Radio:
             "name": "Radio · " + seed["title"],
             "owner": user["username"],
             "public": False,
+            "readonly": True,
             "created": date(row["created"]),
             "changed": date(row["updated"]),
             "songCount": len(songs),

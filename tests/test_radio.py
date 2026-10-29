@@ -7,7 +7,7 @@ from xml.etree.ElementTree import fromstring
 import httpx
 import pytest
 import test_sync
-from test_accounts import csrf, login
+from test_accounts import csrf, drop_playlist_tables, login
 from test_catalog import SONG, body, get, search
 from test_sync import rows, run, uid
 
@@ -299,6 +299,7 @@ def test_v5_upgrade_preserves_mixes_and_sync(radio_service):
     app.state.mixes.linked(uid(service))
     before = rows(service, "mixes")
     with app.state.accounts.transaction() as connection:
+        drop_playlist_tables(connection)
         connection.execute("DROP TABLE lyrics")
         connection.execute("DROP TABLE radio")
         connection.execute("PRAGMA user_version=5")
@@ -306,7 +307,7 @@ def test_v5_upgrade_preserves_mixes_and_sync(radio_service):
     assert rows(service, "mixes") == before
     assert store.client_user({"apiKey": service[3]["admin"]})
     with store.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
 
 
 @pytest.mark.parametrize(
