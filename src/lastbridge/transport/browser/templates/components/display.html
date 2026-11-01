@@ -1,0 +1,33 @@
+{% macro badge(text, tone='neutral') -%}
+  <span class="badge {{ tone }}">
+    {{ text }}
+  </span>
+{%- endmacro %}
+{% macro heading(title, description='') -%}
+  <div class="section-heading">
+    <div>
+      <h2>{{ title }}</h2>
+    </div>
+    {% if description %}
+      <p class="muted">{{ description }}</p>
+    {% endif %}
+  </div>
+{%- endmacro %}
+{% macro brand() -%}
+  <a class="brand" href="/" aria-label="Lastbridge overview">
+    <span class="brand-mark" aria-hidden="true">
+      <i>
+      </i>
+      <i>
+      </i>
+      <i>
+      </i>
+      <i>
+      </i>
+    </span>
+    lastbridge
+    <span>
+      ♪
+    </span>
+  </a>
+{%- endmacro %}

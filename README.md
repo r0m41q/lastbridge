@@ -62,8 +62,13 @@ Architecture tests enforce the migrated packages' dependency direction.
 
 The original flat feature modules temporarily preserve imports and constructor
 signatures for callers that have not migrated yet. Runtime composition uses the
-new application services directly for the R2 features. Browser/OpenSubsonic
-presentation moves in the next reviewed iteration.
+new application services directly for the R2 features. Browser and OpenSubsonic
+handlers now live in each feature's adapters; `transport/` assembles routers and
+owns shared authentication, bounded form parsing and protocol serialization.
+Browser page data is prepared beside feature routes and rendered through
+feature-owned Jinja2 templates. Shared layout/components and the unchanged
+stylesheet live in `transport/browser/`. Navigation and page layout are explicit
+page values. Templates and CSS ship in the installed wheel.
 
 Playlist persistence receives a transaction-scoped retention writer: playlist
 edits, retained-track changes and download-job intent commit or roll back together.
@@ -71,7 +76,10 @@ Library reconciliation runs after that commit. Discovery separates generation,
 list composition and refresh scheduling; Last.fm synchronization separates
 scrobble delivery from loved-track imports; lyrics separates parsing, cache
 orchestration and the LRCLIB network adapter.
-The database remains schema 9; restructuring does not reset accounts or saved data.
+Catalog client representation lives in its Subsonic adapter. Persistence receives
+the existing document policy explicitly to preserve old stored JSON and client
+compatibility. The database remains schema 9; restructuring does not reset
+accounts or saved data.
 
 Shared test fixtures and fakes live in `tests/support/`, registered centrally by
 `tests/conftest.py`. Their app factory injects fake providers and disables automatic

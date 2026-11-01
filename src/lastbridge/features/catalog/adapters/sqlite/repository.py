@@ -4,15 +4,15 @@ from datetime import UTC, datetime
 
 from lastbridge.features.catalog.domain.documents import (
     SOURCE,
-    client_document,
     identity,
 )
 from lastbridge.shared.errors import CatalogError
 
 
 class CatalogRepository:
-    def __init__(self, database):
+    def __init__(self, database, document_policy):
         self.database = database
+        self.document_policy = document_policy
 
     def artists_named(self, name):
         with self.database.connection() as connection:
@@ -32,7 +32,7 @@ class CatalogRepository:
         if row is None or (kind is not None and row["kind"] != kind):
             raise CatalogError(70, "Catalog item not found")
         return dict(row) | {
-            "document": client_document(
+            "document": self.document_policy(
                 row["kind"], json.loads(row["document"])
             )
         }
@@ -64,7 +64,7 @@ class CatalogRepository:
                 document["created"] = (
                     json.loads(old["document"]).get("created") if old else None
                 ) or datetime.now(UTC).isoformat().replace("+00:00", "Z")
-            document = client_document(kind, document)
+            document = self.document_policy(kind, document)
             connection.execute(
                 "INSERT INTO catalog VALUES(?,?,?,?,?,?,?) "
                 "ON CONFLICT(id) DO UPDATE SET document=excluded.document,"

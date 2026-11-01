@@ -8,8 +8,8 @@ from fastapi.responses import JSONResponse
 
 from lastbridge.bootstrap import Providers, bootstrap
 from lastbridge.config import Settings
-from lastbridge.subsonic import router as subsonic_router
-from lastbridge.web import router as web_router
+from lastbridge.transport.browser.router import router as web_router
+from lastbridge.transport.subsonic.router import router as subsonic_router
 
 logger = logging.getLogger(__name__)
 

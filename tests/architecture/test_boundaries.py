@@ -62,9 +62,23 @@ def violations(module, source):
             )
             if not allowed:
                 problems.append(name)
-        if ".adapters.browser" in module and ".adapters.subsonic" in name:
+        browser = ".adapters.browser" in module or module.startswith(
+            "lastbridge.transport.browser."
+        )
+        subsonic = ".adapters.subsonic" in module or module.startswith(
+            "lastbridge.transport.subsonic."
+        )
+        if browser and (
+            ".adapters.subsonic" in name
+            or name.startswith("lastbridge.transport.subsonic.")
+            or name == "lastbridge.subsonic"
+        ):
             problems.append(name)
-        if ".adapters.subsonic" in module and ".adapters.browser" in name:
+        if subsonic and (
+            ".adapters.browser" in name
+            or name.startswith("lastbridge.transport.browser.")
+            or name == "lastbridge.web"
+        ):
             problems.append(name)
     if layer in ("domain", "application"):
         for node in ast.walk(tree):
@@ -112,6 +126,14 @@ def test_feature_dependency_direction(feature):
             "adapters.browser",
             "from ..subsonic import handlers",
         ),
+        (
+            "adapters.subsonic",
+            "from lastbridge.transport.browser.dependencies import COOKIE",
+        ),
+        (
+            "adapters.browser",
+            "from lastbridge.transport.subsonic.parameters import required",
+        ),
     ],
 )
 def test_guard_rejects_boundary_violations(layer, source):
@@ -135,3 +157,12 @@ def test_test_support_has_no_test_module_dependencies():
             assert not any(
                 part.startswith("test_") for part in name.split(".")
             )
+
+
+@pytest.mark.parametrize("transport", ["browser", "subsonic"])
+def test_transport_adapters_do_not_import_each_other(transport):
+    for path in (SOURCE / "transport" / transport).rglob("*.py"):
+        module = "lastbridge." + ".".join(
+            path.relative_to(SOURCE).with_suffix("").parts
+        )
+        assert not violations(module, path.read_text())

@@ -16,6 +16,9 @@ from lastbridge.features.catalog.adapters.http.artwork import ArtworkLookup
 from lastbridge.features.catalog.adapters.sqlite.repository import (
     CatalogRepository,
 )
+from lastbridge.features.catalog.adapters.subsonic.documents import (
+    client_document,
+)
 from lastbridge.features.catalog.adapters.youtube.documents import (
     MetadataDocuments,
 )
@@ -127,7 +130,7 @@ async def bootstrap(
             database, credentials, accounts = await run_in_threadpool(
                 account_storage, config
             )
-            repository = CatalogRepository(database)
+            repository = CatalogRepository(database, client_document)
             catalog = Catalog(
                 repository,
                 selected.metadata

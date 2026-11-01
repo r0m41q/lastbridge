@@ -1,8 +1,4 @@
-"""Stable metadata identity and document rules.
-
-client_document preserves the stored legacy representation until R3 moves the
-remaining client representation boundary. No persisted document format changes.
-"""
+"""Stable metadata identity, image and numeric rules."""
 
 import re
 from urllib.parse import urlsplit
@@ -53,16 +49,3 @@ def number(value):
         return result if 0 <= result <= 2**31 - 1 else None
     except ValueError, TypeError, OverflowError:
         return None
-
-
-def client_document(kind, document):
-    """Make persisted pre-rendition metadata safe for client song parsers."""
-    document = dict(document)
-    if kind == "song":
-        # Feishin unconditionally calls contentType.startsWith(). Unknown media
-        # needs a string without inventing an audio format before resolution.
-        document.setdefault("contentType", "application/octet-stream")
-    child = {"album": "song", "artist": "album"}.get(kind)
-    if child and child in document:
-        document[child] = [client_document(child, d) for d in document[child]]
-    return document

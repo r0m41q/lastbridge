@@ -1,0 +1,58 @@
+{% from 'components/icons.html' import icon %}
+{% from 'components/display.html' import brand %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark light">
+    <title>{{ page.title }} · Lastbridge</title>
+    <link rel="stylesheet" href="/assets/style.css">
+  </head>
+  <body class="{{ 'app-shell' if user is not none else 'guest-shell' }}">
+    <a class="skip-link" href="#main">
+      Skip to content
+    </a>
+    {% if user is not none %}
+      <aside class="sidebar">
+        {{ brand() }}
+        <nav aria-label="Main navigation">
+          {% for url, label, symbol in navigation %}
+            <a href="{{ url }}"{% if page.section == url %} aria-current="page"{% endif %}>
+              {{ icon(symbol) }}
+              <span>
+                {{ label }}
+              </span>
+            </a>
+          {% endfor %}
+        </nav>
+        <div class="identity">
+          <span class="avatar">
+            {{ user.username[:1].upper() }}
+          </span>
+          <div>
+            <strong>{{ user.username }}</strong>
+            <small>{{ 'Administrator' if user.admin else 'Listener' }}</small>
+          </div>
+        </div>
+      </aside>
+    {% else %}
+      <header class="guest-brand">
+        {{ brand() }}
+      </header>
+    {% endif %}
+    <main id="main" tabindex="-1">
+      {% if page.layout != 'auth' %}
+        <header class="page-header">
+          <h1>{{ page.title }}</h1>
+        </header>
+        <div class="page-content{{ ' panel' if page.layout == 'panel' else '' }}">
+        {% endif %}
+        {% block content %}
+        {% endblock %}
+        {% if page.layout != 'auth' %}
+        </div>
+      {% endif %}
+    </main>
+  </body>
+</html>
