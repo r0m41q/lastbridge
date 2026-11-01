@@ -94,6 +94,7 @@ def service(tmp_path, monkeypatch):
 
 
 def drop_playlist_tables(connection):
+    connection.execute("DROP TABLE playlist_imports")
     connection.execute("DROP TABLE mix_activity")
     connection.execute("DROP VIEW retained_tracks")
     connection.execute("DROP TABLE playlist_entries")

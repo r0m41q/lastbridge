@@ -1,6 +1,9 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
+from lastbridge.features.playlists.adapters.browser.imports import (
+    router as imports_router,
+)
 from lastbridge.features.playlists.adapters.browser.views import playlists_view
 from lastbridge.shared.errors import CatalogError
 from lastbridge.transport.browser.dependencies import (
@@ -11,6 +14,7 @@ from lastbridge.transport.browser.rendering import Page, render
 from lastbridge.transport.http.context import services
 
 router = APIRouter()
+router.include_router(imports_router)
 
 
 @router.get("/playlists")

@@ -340,7 +340,7 @@ def test_v4_upgrade_preserves_sync_and_saved_state(mix_service):
         == "admin"
     )
     with migrated.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
         assert (
             connection.execute("SELECT count(*) FROM mixes").fetchone()[0] == 0
         )

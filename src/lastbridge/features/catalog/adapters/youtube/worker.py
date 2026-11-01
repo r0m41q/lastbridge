@@ -89,6 +89,34 @@ def execute(payload):
         return music.get_album(payload["source"])
     if operation == "artist":
         return music.get_artist(payload["source"])
+    if operation == "playlist":
+        result = music.get_playlist(payload["source"], limit=1001)
+        if not isinstance(result.get("tracks"), list):
+            raise ValueError("Invalid playlist response")
+        return {
+            "title": result.get("title"),
+            "trackCount": result.get("trackCount"),
+            "tracks": [
+                {
+                    key: row[key]
+                    for key in (
+                        "videoId",
+                        "title",
+                        "artists",
+                        "album",
+                        "videoType",
+                        "duration_seconds",
+                        "duration",
+                        "thumbnails",
+                        "isAvailable",
+                    )
+                    if key in row
+                }
+                if isinstance(row, dict)
+                else None
+                for row in result.get("tracks", [])[:1001]
+            ],
+        }
     if operation == "radio":
         tracks = radio_tracks(music, payload["source"])
         # Only public metadata crosses the worker boundary. Ignore tokens,

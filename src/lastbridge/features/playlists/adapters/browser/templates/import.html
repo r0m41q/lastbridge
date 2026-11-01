@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% from 'components/forms.html' import action %}
+{% block content %}
+  <div class="dashboard">
+    <section class="panel">
+      <h2>{{ item.title }}</h2>
+      <p>{{ playable }} playable / {{ item.entries|length }} entries · {{ 'Shared' if item.shared else 'Private' }}</p>
+      <p><a href="https://music.youtube.com/playlist?list={{ item.source }}" rel="noreferrer">YouTube source</a></p>
+      {% if item.error %}<p role="status">{{ item.error }}</p>{% endif %}
+      <div class="actions">
+        {% if not item.ready %}
+          {{ action('/playlist-imports/' ~ item.id ~ '/confirm', user.csrf, 'Import playlist') }}
+          {{ action('/playlist-imports/' ~ item.id ~ '/delete', user.csrf, 'Discard preview') }}
+        {% elif not item.shared or user.admin %}
+          {{ action('/playlist-imports/' ~ item.id ~ '/refresh', user.csrf, 'Refresh') }}
+          <details>
+            <summary>Remove import</summary>
+            <p>{{ 'Removes this chart for everyone.' if item.shared else 'Removes this imported snapshot.' }} Saved tracks and independent copies remain.</p>
+            {{ action('/playlist-imports/' ~ item.id ~ '/delete', user.csrf, 'Confirm removal', danger=true) }}
+          </details>
+        {% endif %}
+      </div>
+      {% if not item.ready %}<p>Preview expires after one hour. Importing does not download audio.</p>{% endif %}
+      {% if item.ready %}<p>Last updated: {{ updated }}{% if item.shared %} · Next refresh or retry: {{ next_refresh }}{% endif %}</p><p>{{ 'Refreshes every 24 hours after a successful refresh.' if item.shared else 'Use Refresh to update this snapshot.' }}</p>{% endif %}
+    </section>
+    <section class="panel">
+      <h2>Tracks</h2>
+      <ol>
+        {% for entry in item.entries %}
+          <li>{{ entry.artist }}{% if entry.artist %} — {% endif %}{{ entry.title }}{% if entry.reason %} <span class="muted">({{ entry.reason }})</span>{% endif %}</li>
+        {% endfor %}
+      </ol>
+    </section>
+    <a href="/playlists">Back to playlists</a>
+  </div>
+{% endblock %}

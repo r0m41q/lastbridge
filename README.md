@@ -9,6 +9,7 @@ Last.fm linking, and library management.
 - Get personal Comfort, Discover, Listen Again, and Loved Tracks playlists.
 - Scrobble to Last.fm, import loved tracks, start radio, and read synced lyrics.
 - Separate user libraries with shared audio storage.
+- Import public YouTube playlists, with shared charts refreshed daily.
 
 Still in development. Feishin browsing, playback, seeking, and downloads have been
 confirmed; iOS client testing is pending. Radio, autoplay, and lyrics depend on
@@ -61,6 +62,14 @@ Favorites and playlists marked **Keep downloaded** retain audio outside the cach
 limit. Ordinary playlists store metadata only. Linking Last.fm automatically
 imports matched loved tracks as favorites and queues their downloads; manage the
 import from **Last.fm sync** in the web UI.
+
+Import a public YouTube playlist from **Playlists** in the browser. Preview shows
+unavailable or unmatched tracks before saving. Imports are read-only, metadata-only
+snapshots; copy one to edit or keep it downloaded. Administrators can share charts
+with everyone: each source refreshes once every 24 hours after its last successful
+refresh, including while users are inactive. Private imports refresh on request.
+Up to 1,000 entries and 50 exact-audio fallback searches per import are supported.
+Private YouTube accounts and Spotify/Apple Music integrations are not supported.
 
 First playback waits for the complete track to download. Audio is served without
 transcoding; Opus is optional and requires client support. Enable server scrobbling

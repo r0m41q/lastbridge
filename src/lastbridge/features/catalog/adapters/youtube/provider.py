@@ -13,6 +13,7 @@ class MetadataProvider:
         # Artist pages fan out into album requests. Reserve independent bounded
         # capacity for the foreground radio action so those cannot starve it.
         self.radio_slots = asyncio.Semaphore(2)
+        self.playlist_slots = asyncio.Semaphore(1)
 
     async def exchange(self, process, payload):
         process.stdin.write(json.dumps(payload).encode())
@@ -32,6 +33,8 @@ class MetadataProvider:
             if payload.get("operation") == "radio"
             else self.slots
         )
+        if payload.get("operation") == "playlist":
+            slots = self.playlist_slots
         try:
             await asyncio.wait_for(slots.acquire(), timeout=1)
         except TimeoutError:

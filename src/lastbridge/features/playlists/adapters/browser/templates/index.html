@@ -5,6 +5,29 @@
 {% block content %}
   <div class="dashboard">
     <section class="panel">
+      <h2>Import YouTube playlist</h2>
+      <form method="post" action="/playlist-imports/preview">
+        {{ csrf(user.csrf) }}
+        <label>Playlist URL <input type="url" name="url" required maxlength="2048" placeholder="https://music.youtube.com/playlist?list=…"></label>
+        {% if user.admin %}
+          <label>Visibility <select name="scope"><option value="private">Only me</option><option value="shared">Everyone · refresh every 24 hours</option></select></label>
+        {% endif %}
+        <button type="submit">Preview</button>
+      </form>
+    </section>
+    <section>
+      <h2>Imported playlists</h2>
+      {% for item in imported %}
+        <article class="panel playlist-row">
+          <div class="playlist-info">
+            <h3><a href="/playlist-imports/{{ item.id }}">{{ item.title }}</a></h3>
+            <p>{{ 'Shared chart' if item.shared else 'Private import' }} · {{ item.entries|length }} source entries</p>
+            {% if item.error %}<p role="status">{{ item.error }}</p>{% endif %}
+          </div>
+        </article>
+      {% else %}<p>No imported playlists.</p>{% endfor %}
+    </section>
+    <section class="panel">
       {{ heading('Create playlist') }}
       <p>Edit tracks and their order in your music app.</p>
       <form class="inline-form" method="post" action="/playlists/create">
@@ -41,8 +64,7 @@
         </article>
       {% endfor %}
     </section>
-    <section class="panel">
-      {{ heading('Copy a playlist') }}
+    <section class="panel">      {{ heading('Copy a playlist') }}
       <p>Copies are independent, editable snapshots. Later source refreshes do not change the copy.</p>
       {% if choices %}
         <form method="post" action="/playlists/copy">
@@ -53,8 +75,7 @@
         </form>
       {% endif %}
     </section>
-    <section class="panel">
-      <details>
+    <section class="panel">      <details>
         <summary>About downloads and storage</summary>
         <p>Ordinary playlists store references only. Keep downloaded queues tracks for permanent server storage, including later additions. This does not download anything onto your phone or add hearts. Download progress and retry are on the Saved library page.</p>
         <p>Releasing a playlist keeps its track list. Audio stays retained while any favorite or downloaded playlist needs it; otherwise it returns to the temporary cache. Loaded client queues are unchanged.</p>

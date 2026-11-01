@@ -196,6 +196,7 @@ def test_v8_upgrade_preserves_snapshots_and_waits_for_activity(
     assert run(service, mixes.refresh_one)
     before = rows(service, "mixes")
     with service[1].state.services.database.transaction() as connection:
+        connection.execute("DROP TABLE playlist_imports")
         connection.execute("DROP TABLE mix_activity")
         connection.execute("PRAGMA user_version=8")
     store = make_accounts(service[1].state.services.database.path.parent)
@@ -209,7 +210,7 @@ def test_v8_upgrade_preserves_snapshots_and_waits_for_activity(
     mixes.touch(uid(service))
     assert run(service, mixes.refresh_one)
     with store.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
 
 
 def test_configured_interval_changes_on_restart_without_erasing_manual_work(

@@ -55,9 +55,16 @@ from lastbridge.features.playback.application.ports import (
     AudioProvider as AudioProviderPort,
 )
 from lastbridge.features.playback.application.service import AudioCache
+from lastbridge.features.playlists.adapters.sqlite.imports import (
+    ImportRepository,
+)
 from lastbridge.features.playlists.adapters.sqlite.repository import (
     PlaylistRepository,
 )
+from lastbridge.features.playlists.adapters.youtube.imports import (
+    PlaylistProvider,
+)
+from lastbridge.features.playlists.application.imports import Imports
 from lastbridge.features.playlists.application.service import Playlists
 from lastbridge.features.radio.adapters.catalog import RadioCatalog
 from lastbridge.features.radio.adapters.sqlite.repository import (
@@ -219,16 +226,27 @@ async def bootstrap(
             inactive_ttl=config.mix_inactive_days * 86400,
         )
         resources.push_async_callback(mixes.close)
+        imports = Imports(
+            ImportRepository(database),
+            PlaylistProvider(
+                catalog.provider.fetch, catalog.song, catalog.match_loved
+            ),
+            catalog,
+            library,
+        )
+        resources.push_async_callback(imports.close)
         playlists = Playlists(
             PlaylistRepository(database, library.repository),
             catalog,
             library,
             mixes,
             radio,
+            imports,
         )
         if start_workers:
             await sync.start()
             await mixes.start()
+            await imports.start()
         yield Services(
             database=database,
             credentials=credentials,

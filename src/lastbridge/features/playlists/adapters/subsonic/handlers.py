@@ -8,6 +8,7 @@ async def lists(request, method, values, user):
         raise CatalogError(50, "Access denied")
     playlists = services(request).mixes.playlists(user)
     playlists += services(request).playlists.local(user)
+    playlists += services(request).playlists.imported(user)
     radio = services(request).radio.playlist(user)
     return {"playlists": {"playlist": playlists + ([radio] if radio else [])}}
 

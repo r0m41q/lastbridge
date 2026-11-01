@@ -640,7 +640,7 @@ def test_seven_to_eight_upgrade_preserves_state(
     migrated = make_accounts(store.repository.database.path.parent)
     assert migrated.client_user({"apiKey": service[3]["admin"]})
     with migrated.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
         assert (
             connection.execute("SELECT * FROM lyrics").fetchone()[
                 "fingerprint"

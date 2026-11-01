@@ -8,4 +8,5 @@ pytest_plugins = (
     "support.sync",
     "support.radio",
     "support.mixes",
+    "support.imports",
 )

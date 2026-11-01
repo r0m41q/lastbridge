@@ -24,6 +24,7 @@ class Playlists:
         library: LibraryAccess,
         mixes: MixAccess,
         radio: RadioAccess,
+        imports=None,
     ):
         self.repository, self.catalog, self.library = (
             repository,
@@ -31,11 +32,19 @@ class Playlists:
             library,
         )
         self.mixes, self.radio = mixes, radio
+        self.imports = imports
 
     def local(self, user):
         return [
             self.document(user, row, ids, False)
             for row, ids in self.repository.local(user)
+        ]
+
+    def imported(self, user):
+        if self.imports is None:
+            return []
+        return [
+            self.imports.document(user, row) for row in self.imports.rows(user)
         ]
 
     def downloaded(self, user):
@@ -78,6 +87,11 @@ class Playlists:
         if stored is not None:
             row, ids = stored
             return self.document(user, row, ids, True)
+        if self.imports is not None and item_id.startswith("y"):
+            row = self.imports.get(user, item_id)
+            if not row["ready"]:
+                raise CatalogError(70, "Playlist not found")
+            return self.imports.document(user, row, True)
         if item_id == self.radio.playlist_id(user["id"]):
             result = self.radio.playlist(user, detail=True)
             if result is None:
