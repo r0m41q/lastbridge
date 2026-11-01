@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% from 'components/forms.html' import csrf %}
+{% block content %}
+  <section class="auth-form login-panel">
+    <h1>Sign in</h1>
+    <form method="post" action="/login">
+      {{ csrf(token) }}
+      <label>Username <input name="username" required maxlength="64" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Your username"></label>
+      <label>Password <input type="password" name="password" required maxlength="256" autocomplete="current-password" placeholder="Your browser password"></label>
+      <button type="submit">Sign in</button>
+    </form>
+    <p class="auth-note">Need an account? Your server administrator can create one for you. Music apps use a separate client password.</p>
+  </section>
+{% endblock %}

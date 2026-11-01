@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% from 'components/forms.html' import action %}
+{% block content %}
+  <div class="dashboard">
+    <section class="panel">
+      {% if user.link_status != 'linked' %}
+        <p>Relink Last.fm on your account page to resume delivery.</p>
+      {% endif %}
+      <h2>Loved-track import</h2>
+      <p>Starts automatically after linking. Confident matches become favorites and queue permanent downloads. Local unlikes stay removed on refresh. Pausing stops new import work; downloads already queued can finish. Reload for progress.</p>
+      {% if job %}
+        <p>Account: {{ job.target }}. Status: {{ job.state }}. Next page: {{ job.next_page }}; total pages: {{ job.total_pages if job.total_pages is not none else 'unknown' }}. Fetched rows: {{ job.fetched }}.</p>
+        {% if job.error %}
+          <p>{{ job.error }}</p>
+        {% endif %}
+        <ul>
+          {% for state, count in counts %}
+            <li>
+              {{ state }}: {{ count }}
+            </li>
+          {% endfor %}
+        </ul>
+        {% for name, label in import_actions %}
+          {{ action('/lastfm/sync/' ~ name, user.csrf, label) }}
+        {% endfor %}
+        <p>Up to 200 unmatched or locally removed recordings:</p>
+        <ul>
+          {% for item in items %}
+            <li>
+              {{ item.artist }} — {{ item.title }}: {{ item.state }}; {{ item.error or '' }}
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p>No import queued. Link Last.fm to start.</p>
+      {% endif %}
+    </section>
+    <section class="panel">
+      <h2>Scrobbles</h2>
+      <p>Only completed-play reports count. Streaming and downloading do not count. Configure your client to submit after half the track or four minutes. Avoid enabling another Last.fm scrobbler for the same playback.</p>
+      <p>Uncertain means Last.fm may already have accepted a report. Automatic retries stop for these reports. Check your Last.fm history before retrying; a manual retry may create a duplicate.</p>
+      <p>Latest 100 reports:</p>
+      <div class="table-scroll">
+        <table>
+          <tr>
+            <th scope="col">
+              Track
+            </th>
+            <th scope="col">
+              Account
+            </th>
+            <th scope="col">
+              Start (UTC Unix seconds)
+            </th>
+            <th scope="col">
+              Status
+            </th>
+            <th scope="col">
+              Attempts
+            </th>
+          </tr>
+          {% for report in reports %}
+            <tr>
+              <td>
+                {{ report.title }}
+              </td>
+              <td>
+                {{ report.target }}
+              </td>
+              <td>
+                {{ report.timestamp }}
+              </td>
+              <td>
+                {{ report.state }}: {{ report.error or '' }}
+              </td>
+              <td>
+                {{ report.attempts }}
+              </td>
+            </tr>
+          {% endfor %}
+        </table>
+      </div>
+      {{ action('/lastfm/sync/retry-scrobbles', user.csrf, 'Retry failed or blocked reports for my linked account') }}
+  {{ action('/lastfm/sync/retry-uncertain', user.csrf, 'Retry uncertain reports — may duplicate Last.fm history') }}
+    </section>
+  </div>
+{% endblock %}

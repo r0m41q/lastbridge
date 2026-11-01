@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% from 'components/display.html' import badge, heading %}
+{% from 'components/icons.html' import icon %}
+{% from 'components/forms.html' import action %}
+{% block content %}
+  <div class="dashboard">
+    <section>
+      {{ heading('Mixes') }}
+      <div class="mix-grid">
+        {% for card in cards %}
+          <article class="mix-card">
+            <div class="mix-art {{ card.kind }}" aria-hidden="true">
+              <span class="mix-number">
+                VOL. 0{{ loop.index }}
+              </span>
+              <strong>{{ card.name }}</strong>
+            </div>
+            <h3>{{ card.name }}</h3>
+            <p class="mix-description">{{ card.description }}</p>
+            <p>{{ card.count }} tracks · Open in your music app</p>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+    <section class="panel">
+      <div class="card-top">
+        <span class="card-icon">
+          {{ icon('sync') }}
+        </span>
+        {{ badge('Refreshing' if status and status.running else 'Your refresh schedule', 'good') }}
+      </div>
+      <h2>Refresh schedule</h2>
+      <p>Automatic refresh: every {{ refresh_hours }} hours after a successful refresh, including manual refreshes. Pauses after {{ inactive_days }} days without activity. Returning queues overdue work in the background; existing mixes stay usable.</p>
+      {% if status %}
+        <div class="schedule-row">
+          <div>
+            <p class="eyebrow">Status</p>
+            <strong>Status: {{ state }}.</strong>
+          </div>
+          <div>
+            <p class="eyebrow">Last successful refresh</p>
+            <strong>{{ last }}</strong>
+          </div>
+          <div>
+            <p class="eyebrow">Next refresh or retry eligible at:</p>
+            <strong>{{ next_time }} (UTC)</strong>
+          </div>
+        </div>
+        {% if status.error %}
+          <p class="notice">{{ status.error }}</p>
+        {% endif %}
+        <div class="actions">
+          {{ action('/mixes/refresh', user.csrf, 'Refresh my mixes') }}
+          <span class="muted">
+            Manual refresh is limited to once every five minutes.
+          </span>
+        </div>
+      {% else %}
+        <p class="notice">Link Last.fm to start generating your mixes.</p>
+      {% endif %}
+      <details>
+        <summary>What goes into your mixes?</summary>
+        <p>Comfort uses favorites and six-month top tracks. Discover uses similar tracks outside your known listening sample; new profiles get chart suggestions. Listen Again uses recent completed listening. Loved Tracks shows matched Last.fm loves still saved locally.</p>
+        <p>Generated mixes have up to 30 tracks and keep their previous snapshot during outages. Initial generation may take up to three minutes. Unavailable or ambiguous matches are omitted. Loved Tracks follows the import and local hearts immediately. Reload for progress.</p>
+        <p>Mix generation stores metadata; it does not save audio. Heart a song to keep it downloaded.</p>
+      </details>
+    </section>
+  </div>
+{% endblock %}

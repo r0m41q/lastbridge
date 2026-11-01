@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% from 'components/display.html' import heading %}
+{% from 'components/icons.html' import icon %}
+{% from 'components/forms.html' import action, csrf %}
+{% block content %}
+  <div class="dashboard">
+    <section class="panel">
+      {{ heading('Create playlist') }}
+      <p>Edit tracks and their order in your music app.</p>
+      <form class="inline-form" method="post" action="/playlists/create">
+        {{ csrf(user.csrf) }}
+        <label>Name <input name="name" required maxlength="200" placeholder="Playlist name"></label>
+        <button type="submit">Create empty playlist</button>
+      </form>
+    </section>
+    <section>
+      {{ heading('Your playlists', local|length ~ ' playlists') }}
+      {% if not local %}
+        <div class="panel empty-state">
+          <span class="card-icon">
+            {{ icon('list') }}
+          </span>
+          <h3>No playlists yet.</h3>
+          <p>Create one above, or make an editable copy of a mix below.</p>
+        </div>
+      {% endif %}
+      {% for item in local %}
+        {% set kept = item.id in downloaded %}
+        <article class="panel playlist-row">
+          <span class="card-icon">
+            {{ icon('list') }}
+          </span>
+          <div class="playlist-info">
+            <h3>{{ item.name }}</h3>
+            <p>{{ item.songCount }} tracks · {{ 'Kept downloaded.' if kept else 'Metadata only.' }}</p>
+          </div>
+          <div class="actions">
+            {{ action('/playlists/' ~ item.id ~ ('/release' if kept else '/keep'), user.csrf, 'Release downloads' if kept else 'Keep downloaded') }}
+      {{ action('/playlists/' ~ item.id ~ '/delete', user.csrf, 'Delete playlist', danger=true) }}
+          </div>
+        </article>
+      {% endfor %}
+    </section>
+    <section class="panel">
+      {{ heading('Copy a playlist') }}
+      <p>Copies are independent, editable snapshots. Later source refreshes do not change the copy.</p>
+      {% if choices %}
+        <form method="post" action="/playlists/copy">
+          {{ csrf(user.csrf) }}
+          <label>Source <select name="source"> {% for item in choices %} <option value="{{ item.id }}">{{ item.name }}</option> {% endfor %} </select></label>
+          <label>Copy name <input name="name" required maxlength="200"></label>
+          <button type="submit">Create editable copy</button>
+        </form>
+      {% endif %}
+    </section>
+    <section class="panel">
+      <details>
+        <summary>About downloads and storage</summary>
+        <p>Ordinary playlists store references only. Keep downloaded queues tracks for permanent server storage, including later additions. This does not download anything onto your phone or add hearts. Download progress and retry are on the Saved library page.</p>
+        <p>Releasing a playlist keeps its track list. Audio stays retained while any favorite or downloaded playlist needs it; otherwise it returns to the temporary cache. Loaded client queues are unchanged.</p>
+      </details>
+    </section>
+  </div>
+{% endblock %}

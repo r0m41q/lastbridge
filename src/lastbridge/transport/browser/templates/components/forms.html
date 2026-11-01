@@ -1,0 +1,9 @@
+{% macro csrf(value) -%}
+  <input type="hidden" name="csrf" value="{{ value }}">
+{%- endmacro %}
+{% macro action(url, token, label, danger=false) -%}
+  <form class="{{ 'danger' if danger else 'secondary' }}" method="post" action="{{ url }}">
+    {{ csrf(token) }}
+    <button type="submit">{{ label }}</button>
+  </form>
+{%- endmacro %}

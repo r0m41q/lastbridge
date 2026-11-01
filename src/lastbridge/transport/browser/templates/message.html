@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block content %}
+  {% if message %}
+    <p>{{ message }}</p>
+  {% endif %}
+  {% if secret is not none %}
+    <code>{{ secret }}</code>
+  {% endif %}
+  {% if back_url %}
+    <a href="{{ back_url }}">
+      {{ back_label }}
+    </a>
+  {% endif %}
+{% endblock %}

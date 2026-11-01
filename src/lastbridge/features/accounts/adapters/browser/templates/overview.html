@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% from 'components/icons.html' import icon %}
+{% from 'components/display.html' import badge, heading %}
+{% from 'components/forms.html' import csrf, action %}
+{% block content %}
+  <div class="dashboard">
+    <div class="stats">
+      {% for label, value, symbol in stats %}
+        <div class="stat">
+          <p class="eyebrow">{{ label }}</p>
+          <strong>{{ value }}</strong>
+          {{ icon(symbol) }}
+        </div>
+      {% endfor %}
+    </div>
+    <section>
+      {{ heading('Connections') }}
+      <div class="columns">
+        <section class="panel" id="lastfm-connection">
+          <div class="card-top">
+            <span class="card-icon">
+              {{ icon('sync') }}
+            </span>
+            {{ badge('Connected' if linked else 'Connection needed', 'good' if linked else 'warm') }}
+          </div>
+          <h3>Your listening, connected (Last.fm).</h3>
+          {% if linked %}
+            <p>Last.fm: <strong>{{ user.lastfm_name }}</strong> (linked). Your listening helps shape your next discovery.</p>
+          {% elif user.link_status == 'relink' %}
+            <p>Last.fm authorization was revoked. Link again to continue.</p>
+          {% else %}
+            <p>Link Last.fm before connecting a music client.</p>
+          {% endif %}
+          {% if lastfm_configured %}
+            <div class="actions">
+              {{ action('/lastfm/link', user.csrf, 'Relink Last.fm' if linked else 'Link Last.fm') }}
+            </div>
+          {% else %}
+            <p class="notice">Ask the administrator to configure Last.fm keys.</p>
+          {% endif %}
+        </section>
+        <section class="panel">
+          <div class="card-top">
+            <span class="card-icon">
+              {{ icon('key') }}
+            </span>
+            {{ badge('Ready to connect' if linked else 'Link Last.fm first') }}
+          </div>
+          <h3>Music clients</h3>
+          <p>Generate a client password to connect your music app.</p>
+          {% if linked %}
+            <details>
+              <summary>How to connect</summary>
+              <p>Use your username and a generated client password in music apps. The same value can be used as an OpenSubsonic API key. Generating a new one disconnects clients using the old value.</p>
+            </details>
+            <div class="actions">
+              {{ action('/account/client-password', user.csrf, 'Generate replacement client password' if user.client_secret else 'Generate client password') }}
+            </div>
+          {% endif %}
+        </section>
+      </div>
+    </section>
+    {% if user.admin %}
+      <section class="panel admin-panel">
+        {{ heading('Create user') }}
+        <form method="post" action="/admin/users">
+          {{ csrf(user.csrf) }}
+          <label>Username <input name="username" required maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="e.g. alex"></label>
+          <label>Initial browser password <input type="password" name="password" minlength="8" maxlength="256" required autocomplete="new-password" placeholder="At least 8 characters"></label>
+          <button type="submit">Create user</button>
+        </form>
+      </section>
+    {% endif %}
+    {{ action('/logout', user.csrf, 'Sign out') }}
+  </div>
+{% endblock %}

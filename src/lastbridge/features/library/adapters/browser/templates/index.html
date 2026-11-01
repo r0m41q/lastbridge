@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% from 'components/display.html' import badge, heading %}
+{% from 'components/forms.html' import action %}
+{% block content %}
+  <div class="dashboard">
+    <section class="panel">
+      {{ heading('Downloads') }}
+      <p>Heart a song in your music app to keep it here. Your favourites and downloaded playlists share the same collection.</p>
+      {% if downloads %}
+        <div class="table-scroll">
+          <table>
+            <tr>
+              <th scope="col">
+                Track
+              </th>
+              <th scope="col">
+                Download
+              </th>
+              <th scope="col">
+                Attempts
+              </th>
+            </tr>
+            {% for item in downloads %}
+              {% set state = 'saved' if item.state == 'complete' else item.state %}
+              <tr>
+                <td>
+                  {{ item.title }}
+                </td>
+                <td>
+                  {{ badge(state, 'good' if state == 'saved' else 'warm') }}
+                  {% if item.error %}
+                    : {{ item.error }}
+                  {% endif %}
+                </td>
+                <td>
+                  {{ item.attempts }}
+                </td>
+              </tr>
+            {% endfor %}
+          </table>
+        </div>
+        {{ action('/library/retry', user.csrf, 'Retry my pending and failed downloads') }}
+      {% else %}
+        <p>No saved recordings yet. Heart a song or album in your music app or <a href="/playlists"> keep a playlist </a> .</p>
+      {% endif %}
+      <details>
+        <summary>How saved music works</summary>
+        <p>Song hearts save a recording; album hearts save available album tracks. Artist hearts are bookmarks. Favorites stay saved if a download fails. Unheart in your music app to release your favorite pin; other users and downloaded playlists keep theirs.</p>
+        <p><a href="/playlists"> Manage playlist downloads </a> .</p>
+      </details>
+    </section>
+  </div>
+{% endblock %}

@@ -9,8 +9,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from lastbridge.providers.base import ProviderError
 from lastbridge.providers.youtube import VIDEO_ID
+from lastbridge.shared.errors import ProviderError
 
 
 class QuietLogger:
