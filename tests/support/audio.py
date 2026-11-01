@@ -1,5 +1,5 @@
-from lastbridge.audio import AudioCache
-from lastbridge.catalog import CatalogError
+from lastbridge.shared.errors import CatalogError
+from support.build_audio import make_audio
 
 SOURCE = "khnokW3Mw24"
 
@@ -30,7 +30,7 @@ class FakeAudio:
 
 
 def cache_at(tmp_path, provider=None, **kwargs):
-    return AudioCache(
+    return make_audio(
         tmp_path / "audio",
         budget=32_768,
         maximum=8192,

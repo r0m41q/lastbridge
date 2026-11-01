@@ -9,13 +9,13 @@ import sys
 import tempfile
 from pathlib import Path
 
-from lastbridge.providers.base import ProviderError
 from lastbridge.providers.youtube import VIDEO_ID
 from lastbridge.providers.youtube_worker import (
     QuietLogger,
     audio_formats,
     classify_error,
 )
+from lastbridge.shared.errors import ProviderError
 
 
 def choose_format(formats, policy):

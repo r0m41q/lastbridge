@@ -1,12 +1,13 @@
 import random
 
 from lastbridge.shared.errors import CatalogError
+from lastbridge.transport.http.context import services
 from lastbridge.transport.subsonic.parameters import integer, required
 from lastbridge.transport.subsonic.serialization import directory_album
 
 
 async def albums(request, method, values, user):
-    library = request.app.state.library
+    library = services(request).library
     user_id = user["id"]
     kind = required(values, "type")
     if kind not in (
@@ -76,7 +77,8 @@ async def albums(request, method, values, user):
     elif kind in ("recent", "frequent", "highest"):
         # Album history aggregation and ratings remain future work.
         albums = []
-    albums = albums[offset: offset + size]
+    stop = offset + size
+    albums = albums[offset:stop]
     if method == "getAlbumList":
         albums = [directory_album(a) for a in albums]
     return {
@@ -87,7 +89,7 @@ async def albums(request, method, values, user):
 
 
 async def starred(request, method, values, user):
-    library = request.app.state.library
+    library = services(request).library
     user_id = user["id"]
     result = library.collection(user_id, starred_only=True)
     if method == "getStarred":

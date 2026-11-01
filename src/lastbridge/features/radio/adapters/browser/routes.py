@@ -8,6 +8,7 @@ from lastbridge.transport.browser.dependencies import (
     protected_form,
 )
 from lastbridge.transport.browser.rendering import Page, message, render
+from lastbridge.transport.http.context import services
 
 router = APIRouter()
 
@@ -21,7 +22,7 @@ async def radio_page(request: Request):
         "radio/index.html",
         Page("Radio", "/radio", "panel"),
         user=user,
-        **radio_view(request.app.state, user),
+        **radio_view(services(request), user),
     )
 
 
@@ -31,7 +32,7 @@ async def radio_action(request: Request):
     if user["link_status"] not in ("linked", "relink"):
         raise HTTPException(403, "Link Last.fm first")
     try:
-        await request.app.state.radio.songs(user, values.get("id", ""), 50)
+        await services(request).radio.songs(user, values.get("id", ""), 50)
     except CatalogError as failure:
         return message(
             Page("Radio unavailable"),

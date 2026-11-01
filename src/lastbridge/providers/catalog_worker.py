@@ -1,18 +1,6 @@
-"""Compatibility CLI/module for the moved catalog worker."""
+"""Preserve the documented worker command; implementation is feature-owned."""
 
-from lastbridge.features.catalog.adapters.youtube.worker import (
-    audio_row,
-    execute,
-    main,
-    radio_tracks,
-)
-
-__all__ = [
-    "audio_row",
-    "execute",
-    "radio_tracks",
-    "main",
-]
+from lastbridge.features.catalog.adapters.youtube.worker import main
 
 if __name__ == "__main__":
     main()

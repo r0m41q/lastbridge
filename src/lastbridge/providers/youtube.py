@@ -10,22 +10,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from lastbridge.features.catalog.domain.matching import (
-    match_recording,
-    normalize,
-    normalize_title,
-)
-from lastbridge.providers.base import Candidate, ProviderError, Recording
-
-__all__ = [
-    "YouTubeProvider",
-    "VIDEO_ID",
-    "ERROR_CODES",
-    "run_worker",
-    "match_recording",
-    "normalize",
-    "normalize_title",
-]
+from lastbridge.features.catalog.domain.models import Candidate, Recording
+from lastbridge.shared.errors import ProviderError
 
 VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}\Z")
 ERROR_CODES = frozenset(

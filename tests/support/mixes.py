@@ -23,7 +23,7 @@ def mix_service(sync_service, monkeypatch):
     service = sync_service
     app = service[1]
     for name in ("admin", "alice"):
-        app.state.mixes.linked(uid(service, name))
+        app.state.services.mixes.linked(uid(service, name))
     calls = []
 
     async def taste(client, method, **params):
@@ -43,13 +43,13 @@ def mix_service(sync_service, monkeypatch):
             ]
         }
 
-    monkeypatch.setattr(app.state.lastfm, "taste_rows", taste)
-    monkeypatch.setattr(app.state.catalog.provider, "fetch", fetch)
+    monkeypatch.setattr(app.state.services.lastfm, "taste_rows", taste)
+    monkeypatch.setattr(app.state.services.catalog.provider, "fetch", fetch)
     return service, calls
 
 
 def refresh(service):
-    assert run(service, service[1].state.mixes.refresh_one)
+    assert run(service, service[1].state.services.mixes.refresh_one)
 
 
 def playlists(service, **params):

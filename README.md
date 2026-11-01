@@ -54,16 +54,18 @@ feature/
 
 `bootstrap.py` constructs dependencies and owns their startup/shutdown.
 `platform/` owns database connections, historical migrations and credential-key
-handling. `shared/` contains neutral errors, dates and recording normalization.
+handling. Driver failures become the neutral `shared.errors.StorageError` at the
+connection boundary, after rollback; application retry paths never import SQLite. `shared/` contains neutral errors, dates and recording normalization.
 The shared Last.fm wire client lives under `providers/lastfm/`; features consume
 bound provider interfaces rather than HTTP clients.
 Application services receive interfaces rather than importing concrete adapters.
-Architecture tests enforce the migrated packages' dependency direction.
+Architecture tests enforce every feature's dependency direction, cross-feature
+implementation isolation, transport separation and use of one service container.
 
-The original flat feature modules temporarily preserve imports and constructor
-signatures for callers that have not migrated yet. Runtime composition uses the
-new application services directly for the R2 features. Browser and OpenSubsonic
-handlers now live in each feature's adapters; `transport/` assembles routers and
+All runtime dependencies are wired explicitly in `bootstrap.py`; HTTP adapters
+access the immutable `Services` bundle through `transport/http/context.py`.
+The former flat feature modules and per-service app-state aliases are removed.
+Browser and OpenSubsonic handlers live in each feature's adapters; `transport/` assembles routers and
 owns shared authentication, bounded form parsing and protocol serialization.
 Browser page data is prepared beside feature routes and rendered through
 feature-owned Jinja2 templates. Shared layout/components and the unchanged
@@ -81,9 +83,29 @@ the existing document policy explicitly to preserve old stored JSON and client
 compatibility. The database remains schema 9; restructuring does not reset
 accounts or saved data.
 
-Shared test fixtures and fakes live in `tests/support/`, registered centrally by
-`tests/conftest.py`. Their app factory injects fake providers and disables automatic
-workers; tests of background execution explicitly start the relevant worker.
+Behavior tests are grouped under `tests/features/<feature>/`, with shared HTTP
+contracts in `tests/transport/`, lifecycle/CLI/storage checks in `tests/integration/`
+and opt-in probe regressions in `tests/providers/`. Shared fixtures, fakes and
+explicit test composition functions live in `tests/support/`, registered centrally
+by `tests/conftest.py`. Factories return real application services with adapters,
+without subclass facades or forwarded infrastructure fields. Their app factory
+injects fake providers and disables automatic workers; background tests explicitly
+start the relevant worker.
+
+Feature entry points are `features/<feature>/application/service.py`: `Accounts`,
+`Catalog`, `Library`, `AudioCache` (playback), `Playlists`, `Mixes` (discovery),
+`Radio`, `LastfmSync` and `Lyrics`. Their consumer-owned interfaces are adjacent in
+`application/ports.py`. Cross-feature adapters may use another feature's public
+domain rules, but never import its application or concrete adapters. Bootstrap
+injects the implementations. Shared template components receive prepared values,
+not services or requests.
+
+Historical schema definitions live under `platform/migrations/`; moving them does
+not change migration order or SQL. The developer probe lives under `tooling/`;
+`python -m lastbridge.probe` remains its public entry point. Documented worker
+module commands remain thin CLI entry points to feature-owned implementations.
+There is no new runtime dependency, database schema version, frontend build or
+service process in this final cleanup.
 Production worker startup remains enabled by default.
 
 ## Accounts and Last.fm linking

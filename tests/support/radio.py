@@ -1,8 +1,9 @@
 import copy
+from dataclasses import replace
 
 import pytest
 
-from lastbridge.radio import Radio
+from support.build_radio import make_radio
 from support.catalog import SONG, body, get, search
 
 
@@ -23,11 +24,16 @@ def track(index, **changes):
 def radio_service(sync_service, monkeypatch):
     service = sync_service
     app = service[1]
-    app.state.radio = Radio(
-        app.state.accounts, app.state.catalog, app.state.library
+    app.state.services = replace(
+        app.state.services,
+        radio=make_radio(
+            app.state.services.accounts,
+            app.state.services.catalog,
+            app.state.services.library,
+        ),
     )
     calls = []
-    original = app.state.catalog.provider.fetch
+    original = app.state.services.catalog.provider.fetch
 
     async def fetch(payload):
         if payload["operation"] != "radio":
@@ -45,7 +51,7 @@ def radio_service(sync_service, monkeypatch):
             ]
         }
 
-    monkeypatch.setattr(app.state.catalog.provider, "fetch", fetch)
+    monkeypatch.setattr(app.state.services.catalog.provider, "fetch", fetch)
     search(service)
     return service, calls
 

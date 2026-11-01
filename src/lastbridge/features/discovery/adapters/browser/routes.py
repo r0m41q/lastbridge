@@ -7,6 +7,7 @@ from lastbridge.transport.browser.dependencies import (
     protected_form,
 )
 from lastbridge.transport.browser.rendering import Page, message, render
+from lastbridge.transport.http.context import services
 
 router = APIRouter()
 
@@ -20,7 +21,7 @@ async def mixes_page(request: Request):
         "discovery/index.html",
         Page("Personal mixes", "/mixes", "dashboard"),
         user=user,
-        **mixes_view(request.app.state.mixes, user),
+        **mixes_view(services(request).mixes, user),
     )
 
 
@@ -30,7 +31,7 @@ async def refresh_mixes(request: Request):
     if user["link_status"] != "linked":
         raise HTTPException(403, "Link Last.fm first")
     try:
-        request.app.state.mixes.request(user["id"])
+        services(request).mixes.request(user["id"])
     except ValueError as error:
         return message(
             Page("Refresh not queued"),

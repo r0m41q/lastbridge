@@ -1,11 +1,12 @@
 from lastbridge.shared.errors import CatalogError
+from lastbridge.transport.http.context import services
 from lastbridge.transport.subsonic.parameters import integer, required
 
 
 async def similar(request, method, values, user):
     if request.method == "HEAD":
         raise CatalogError(10, "Use GET or POST to select radio")
-    songs = await request.app.state.radio.songs(
+    songs = await services(request).radio.songs(
         user,
         required(values, "id"),
         min(integer(values, "count", 50), 50),

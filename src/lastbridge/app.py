@@ -1,7 +1,6 @@
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from dataclasses import fields
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -30,11 +29,6 @@ def create_app(
                 config, start_workers=start_workers, providers=providers
             ) as services:
                 app.state.services = services
-                # R2/R3 bridge for routes; Services owns the wiring.
-                for field in fields(services):
-                    setattr(
-                        app.state, field.name, getattr(services, field.name)
-                    )
                 app.state.ready = True
                 logger.info("Lastbridge ready")
                 try:

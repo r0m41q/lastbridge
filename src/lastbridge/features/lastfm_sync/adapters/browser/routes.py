@@ -7,6 +7,7 @@ from lastbridge.transport.browser.dependencies import (
     protected_form,
 )
 from lastbridge.transport.browser.rendering import Page, render
+from lastbridge.transport.http.context import services
 
 router = APIRouter()
 
@@ -20,7 +21,7 @@ async def sync_page(request: Request):
         "lastfm_sync/index.html",
         Page("Last.fm sync", "/lastfm/sync", "dashboard"),
         user=user,
-        **sync_view(request.app.state.sync, user),
+        **sync_view(services(request).sync, user),
     )
 
 
@@ -30,7 +31,7 @@ async def sync_action(request: Request, action: str):
     if action != "pause" and user["link_status"] != "linked":
         raise HTTPException(403, "Link Last.fm first")
     try:
-        request.app.state.sync.control(user["id"], action)
+        services(request).sync.control(user["id"], action)
     except ValueError:
         raise HTTPException(400, "Unknown sync action") from None
     return RedirectResponse("/lastfm/sync", status_code=303)

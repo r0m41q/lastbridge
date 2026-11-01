@@ -1,7 +1,6 @@
 import asyncio
 import hashlib
 import json
-import sqlite3
 import time
 
 from lastbridge.features.lyrics.application.ports import (
@@ -14,6 +13,7 @@ from lastbridge.features.lyrics.domain.errors import (
     LyricsUnavailable,
 )
 from lastbridge.features.lyrics.domain.lyrics import text
+from lastbridge.shared.errors import StorageError
 
 DEADLINE = 8
 
@@ -53,7 +53,7 @@ class Lyrics:
             return result
         except CoolingDown:
             return stale
-        except LyricsUnavailable, TimeoutError, ValueError, sqlite3.Error:
+        except LyricsUnavailable, TimeoutError, ValueError, StorageError:
             # Briefly cache transient failures to avoid repeated requests.
             try:
                 self.save(
@@ -63,7 +63,7 @@ class Lyrics:
                     60,
                     previous["updated"] if previous and stale else None,
                 )
-            except sqlite3.Error:
+            except StorageError:
                 pass
             return stale
 
@@ -88,7 +88,7 @@ class Lyrics:
             cached = self.cached(song_id, fingerprint)
             if cached and cached["expires"] > time.time():
                 return json.loads(cached["document"])
-        except sqlite3.Error, ValueError:
+        except StorageError, ValueError:
             return []
         key = (song_id, fingerprint)
         if key not in self.tasks:

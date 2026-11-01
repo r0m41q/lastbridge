@@ -1,19 +1,20 @@
 from lastbridge.shared.errors import CatalogError
+from lastbridge.transport.http.context import services
 from lastbridge.transport.subsonic.parameters import required
 
 
 async def lists(request, method, values, user):
     if values.get("username", user["username"]) != user["username"]:
         raise CatalogError(50, "Access denied")
-    playlists = request.app.state.mixes.playlists(user)
-    playlists += request.app.state.playlists.local(user)
-    radio = request.app.state.radio.playlist(user)
+    playlists = services(request).mixes.playlists(user)
+    playlists += services(request).playlists.local(user)
+    radio = services(request).radio.playlist(user)
     return {"playlists": {"playlist": playlists + ([radio] if radio else [])}}
 
 
 async def detail(request, method, values, user):
     return {
-        "playlist": request.app.state.playlists.get(
+        "playlist": services(request).playlists.get(
             user, required(values, "id")
         )
     }
@@ -22,7 +23,7 @@ async def detail(request, method, values, user):
 async def edit(request, method, values, user):
     if request.method == "HEAD":
         raise CatalogError(10, "Use GET or POST to edit playlists")
-    playlists = request.app.state.playlists
+    playlists = services(request).playlists
     if method == "createPlaylist":
         if "playlistId" in values and not values["playlistId"]:
             raise CatalogError(10, "Required parameter: playlistId")

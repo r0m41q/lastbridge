@@ -1,6 +1,7 @@
 import asyncio
 import logging
-import sqlite3
+
+from lastbridge.shared.errors import StorageError
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +16,7 @@ async def run(service, operation):
                     service.repository.recover_delivery()
                 recover = False
                 await operation()
-        except sqlite3.Error, OSError:
+        except StorageError, OSError:
             logger.warning("Last.fm sync storage unavailable; retrying")
             recover = True
         # Idle polling never blocks playback. Imports additionally persist

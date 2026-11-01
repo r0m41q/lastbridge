@@ -8,6 +8,7 @@ from lastbridge.transport.browser.dependencies import (
     protected_form,
 )
 from lastbridge.transport.browser.rendering import Page, render
+from lastbridge.transport.http.context import services
 
 router = APIRouter()
 
@@ -23,7 +24,7 @@ async def playlists_page(request: Request):
         "playlists/index.html",
         Page("Playlists", "/playlists", "dashboard"),
         user=user,
-        **playlists_view(request.app.state, user),
+        **playlists_view(services(request), user),
     )
 
 
@@ -32,7 +33,7 @@ async def new_playlist(request: Request, action: str):
     user, values = await protected_form(request)
     if user["link_status"] not in ("linked", "relink"):
         raise HTTPException(403, "Link Last.fm first")
-    playlists = request.app.state.playlists
+    playlists = services(request).playlists
     try:
         if action == "create":
             await playlists.create(user, values.get("name"), [])
@@ -52,7 +53,7 @@ async def playlist_action(request: Request, item_id: str, action: str):
     user, _ = await protected_form(request)
     if user["link_status"] not in ("linked", "relink"):
         raise HTTPException(403, "Link Last.fm first")
-    playlists = request.app.state.playlists
+    playlists = services(request).playlists
     try:
         if action in ("keep", "release"):
             await playlists.keep(user, item_id, action == "keep")

@@ -6,3 +6,7 @@ class CatalogError(Exception):
 
 class ProviderError(Exception):
     """Only fixed public codes cross provider boundaries."""
+
+
+class StorageError(Exception):
+    """A persistence operation failed; adapters retain the original cause."""

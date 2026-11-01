@@ -1,8 +1,10 @@
-from lastbridge.lyrics_schema import SCHEMA as LYRICS_SCHEMA
-from lastbridge.mix_schema import SCHEMA as MIX_SCHEMA
-from lastbridge.playlist_schema import SCHEMA as PLAYLIST_SCHEMA
-from lastbridge.radio_schema import SCHEMA as RADIO_SCHEMA
-from lastbridge.sync_schema import SCHEMA as SYNC_SCHEMA
+from lastbridge.platform.migrations.discovery import SCHEMA as MIX_SCHEMA
+from lastbridge.platform.migrations.lyrics import SCHEMA as LYRICS_SCHEMA
+from lastbridge.platform.migrations.playlists import SCHEMA as PLAYLIST_SCHEMA
+from lastbridge.platform.migrations.radio import SCHEMA as RADIO_SCHEMA
+from lastbridge.platform.migrations.synchronization import (
+    SCHEMA as SYNC_SCHEMA,
+)
 
 SCHEMA = (
     "CREATE TABLE credential_check (value TEXT NOT NULL)",

@@ -1,6 +1,7 @@
 import asyncio
 import logging
-import sqlite3
+
+from lastbridge.shared.errors import StorageError
 
 logger = logging.getLogger(__name__)
 
@@ -10,12 +11,12 @@ async def run(service):
         service.wake.clear()
         try:
             worked = await service.refresh_one()
-        except sqlite3.Error, OSError:
+        except StorageError, OSError:
             logger.warning("Mix storage unavailable; retrying later")
             # Recover a claim if publication failed, keeping old snapshots.
             try:
                 service.repository.recover()
-            except sqlite3.Error, OSError:
+            except StorageError, OSError:
                 pass
             worked = False
         if not worked:

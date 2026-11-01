@@ -1,12 +1,12 @@
 import argparse
 import getpass
-import sqlite3
 
 from cryptography.fernet import InvalidToken
 from pydantic import ValidationError
 
-from lastbridge.accounts import Accounts
+from lastbridge.bootstrap import account_storage
 from lastbridge.config import Settings
+from lastbridge.shared.errors import StorageError
 
 
 def main() -> None:
@@ -20,12 +20,12 @@ def main() -> None:
     if password != getpass.getpass("Repeat browser password: "):
         parser.exit(2, "Passwords do not match.\n")
     try:
-        store = Accounts(Settings().data_dir)
+        _, _, store = account_storage(Settings())
         if args.action == "bootstrap-admin":
             store.create_user(args.username, password, bootstrap=True)
         else:
             store.reset_password(args.username, password)
-    except OSError, RuntimeError, ValidationError, InvalidToken, sqlite3.Error:
+    except OSError, RuntimeError, ValidationError, InvalidToken, StorageError:
         parser.exit(2, "Account setup failed; check configuration/storage.\n")
     except ValueError as error:
         parser.exit(2, str(error) + "\n")

@@ -1,4 +1,4 @@
-"""Enforce dependency direction across migrated features."""
+"""Enforce dependency direction across every feature and shared package."""
 
 import ast
 import importlib.util
@@ -43,8 +43,28 @@ def violations(module, source):
     problems = []
     feature = parts[2]
     layer = parts[3]
+    feature_module = module.startswith("lastbridge.features.")
     for name in imports(module, tree):
         root = name.split(".")[0]
+        if feature_module and name.startswith("lastbridge.features."):
+            target = name.split(".")
+            if target[2] != feature and target[3:4] != ["domain"]:
+                problems.append("cross-feature implementation: " + name)
+        if layer == "domain" and root in {
+            "os",
+            "subprocess",
+            "sqlite3",
+            "socket",
+            "http",
+            "asyncio",
+            "threading",
+            "multiprocessing",
+        }:
+            problems.append("I/O in domain: " + name)
+        if layer == "domain" and name.startswith("urllib.request"):
+            problems.append("I/O in domain: " + name)
+        if layer == "application" and root in {"sqlite3", "subprocess"}:
+            problems.append("concrete I/O in application: " + name)
         if layer in ("domain", "application"):
             allowed = (
                 root in sys.stdlib_module_names
@@ -109,6 +129,17 @@ def test_feature_dependency_direction(feature):
     "layer,source",
     [
         ("domain", "from fastapi import Request"),
+        ("domain", "import sqlite3"),
+        ("application", "import subprocess"),
+        (
+            "adapters.sqlite",
+            "from lastbridge.features.accounts.adapters.sqlite "
+            "import repository",
+        ),
+        (
+            "adapters.browser",
+            "from lastbridge.features.accounts.application import service",
+        ),
         ("domain", "from lastbridge.providers.lastfm.client import Lastfm"),
         (
             "application",
@@ -166,3 +197,60 @@ def test_transport_adapters_do_not_import_each_other(transport):
             path.relative_to(SOURCE).with_suffix("").parts
         )
         assert not violations(module, path.read_text())
+
+
+def test_shared_rules_do_not_depend_on_infrastructure():
+    for path in (SOURCE / "shared").rglob("*.py"):
+        for name in imports(
+            "lastbridge.shared.example", ast.parse(path.read_text())
+        ):
+            assert name.split(".")[0] in sys.stdlib_module_names or (
+                name.startswith("lastbridge.shared.")
+            ), f"{path}: {name}"
+
+
+def test_runtime_imports_resolve_without_legacy_feature_facades():
+    legacy = {
+        "accounts",
+        "audio",
+        "catalog",
+        "library",
+        "mixes",
+        "radio",
+        "sync",
+        "lyrics",
+        "playlists",
+        "recordings",
+        "lastfm",
+        "ui",
+        "web",
+        "subsonic",
+        "sync_schema",
+        "mix_schema",
+        "playlist_schema",
+        "radio_schema",
+        "lyrics_schema",
+    }
+    for path in SOURCE.rglob("*.py"):
+        module = "lastbridge." + ".".join(
+            path.relative_to(SOURCE).with_suffix("").parts
+        )
+        for name in imports(module, ast.parse(path.read_text())):
+            parts = name.split(".")
+            assert not (
+                parts[0] == "lastbridge"
+                and len(parts) > 1
+                and parts[1] in legacy
+            ), f"{path}: obsolete import {name}"
+
+
+def test_http_uses_only_the_single_service_container():
+    for path in SOURCE.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.Attribute):
+                continue
+            if isinstance(node.value, ast.Attribute):
+                if node.value.attr == "state":
+                    assert node.attr in {"services", "config", "ready"}, (
+                        f"{path}:{node.lineno}: app.state.{node.attr}"
+                    )

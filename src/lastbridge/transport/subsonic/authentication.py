@@ -1,3 +1,4 @@
+from lastbridge.transport.http.context import services
 from lastbridge.transport.subsonic.serialization import reply
 
 
@@ -8,7 +9,7 @@ def authenticate(request, values):
         return reply(values, 43, "Conflicting authentication mechanisms")
     if mechanisms == 0 or ("apiKey" not in values and not values.get("u")):
         return reply(values, 40, "Wrong username or client password")
-    user = request.app.state.accounts.client_user(values)
+    user = services(request).accounts.client_user(values)
     if user is None:
         code = 44 if "apiKey" in values else 40
         return reply(values, code, "Wrong username or client password")

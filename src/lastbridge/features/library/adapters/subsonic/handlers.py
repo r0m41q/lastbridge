@@ -1,10 +1,11 @@
 from lastbridge.shared.errors import CatalogError
+from lastbridge.transport.http.context import services
 from lastbridge.transport.subsonic.parameters import required
 from lastbridge.transport.subsonic.serialization import directory_album
 
 
 async def favorites(request, method, values, user):
-    library = request.app.state.library
+    library = services(request).library
     user_id = user["id"]
     if request.method == "HEAD":
         raise CatalogError(10, "Use GET or POST to change favorites")
@@ -29,7 +30,7 @@ async def folders(request, method, values, user):
 
 
 async def scan_status(request, method, values, user):
-    library = request.app.state.library
+    library = services(request).library
     user_id = user["id"]
     return {
         "scanStatus": {
@@ -40,7 +41,7 @@ async def scan_status(request, method, values, user):
 
 
 async def artists(request, method, values, user):
-    library = request.app.state.library
+    library = services(request).library
     user_id = user["id"]
     artists = library.collection(user_id)["artist"]
     groups = {}
@@ -69,8 +70,8 @@ async def genres(request, method, values, user):
 
 
 async def directory(request, method, values, user):
-    catalog = request.app.state.catalog
-    library = request.app.state.library
+    catalog = services(request).catalog
+    library = services(request).library
     user_id = user["id"]
     item_id = required(values, "id")
     if item_id == "1":

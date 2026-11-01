@@ -1,9 +1,8 @@
 import asyncio
 import logging
-import sqlite3
 import time
 
-from lastbridge.shared.errors import CatalogError
+from lastbridge.shared.errors import CatalogError, StorageError
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,7 @@ class DownloadWorker:
                     recover = False
                 await self.library.process_one()
                 due = self.repository.next_due()
-            except sqlite3.Error, OSError, CatalogError:
+            except StorageError, OSError, CatalogError:
                 # If SQLite itself cannot write (for example disk exhaustion),
                 # keep durable intents and retry after storage becomes usable.
                 logger.warning("Save worker storage unavailable; retrying")

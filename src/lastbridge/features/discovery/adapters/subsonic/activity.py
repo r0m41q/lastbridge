@@ -1,3 +1,6 @@
+from lastbridge.transport.http.context import services
+
+
 def record_activity(request, method, values, user):
     # Routine client sync, ping and status polling are not evidence of use.
     active = method in {
@@ -19,4 +22,4 @@ def record_activity(request, method, values, user):
         and values.get("query", "").strip().strip('"')
     )
     if active and request.method != "HEAD":
-        request.app.state.mixes.touch(user["id"])
+        services(request).mixes.touch(user["id"])

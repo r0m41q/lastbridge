@@ -1,4 +1,5 @@
 from lastbridge.shared.errors import CatalogError
+from lastbridge.transport.http.context import services
 from lastbridge.transport.subsonic.parameters import required
 
 
@@ -21,7 +22,7 @@ async def user(request, method, values, user):
             "username": name,
             "folder": [1],
             "scrobblingEnabled": bool(
-                request.app.state.lastfm.configured
+                services(request).lastfm.configured
                 and user["link_status"] == "linked"
                 and user["lastfm_secret"]
             ),

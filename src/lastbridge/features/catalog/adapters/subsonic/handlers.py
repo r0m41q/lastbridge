@@ -1,13 +1,14 @@
 from fastapi.responses import Response
 
 from lastbridge.shared.errors import CatalogError
+from lastbridge.transport.http.context import services
 from lastbridge.transport.subsonic.parameters import integer, required
 from lastbridge.transport.subsonic.serialization import directory_album
 
 
 async def top_songs(request, method, values, user):
-    catalog = request.app.state.catalog
-    library = request.app.state.library
+    catalog = services(request).catalog
+    library = services(request).library
     user_id = user["id"]
     if "id" in values:
         required(values, "id")
@@ -24,8 +25,8 @@ async def top_songs(request, method, values, user):
 
 
 async def search(request, method, values, user):
-    catalog = request.app.state.catalog
-    library = request.app.state.library
+    catalog = services(request).catalog
+    library = services(request).library
     user_id = user["id"]
     if "query" not in values:
         raise CatalogError(10, "Required parameter: query")
@@ -55,10 +56,10 @@ async def search(request, method, values, user):
         if not query
         else {"artist": [], "album": [], "song": []}
     )
-    result = {
-        k: results[k][offset: offset + count]
-        for k, (offset, count) in pages.items()
-    }
+    result = {}
+    for kind, (offset, count) in pages.items():
+        stop = offset + count
+        result[kind] = results[kind][offset:stop]
     if method == "search2":
         result["album"] = [directory_album(a) for a in result["album"]]
     result = library.decorate(user_id, result)
@@ -68,8 +69,8 @@ async def search(request, method, values, user):
 
 
 async def detail(request, method, values, user):
-    catalog = request.app.state.catalog
-    library = request.app.state.library
+    catalog = services(request).catalog
+    library = services(request).library
     user_id = user["id"]
     kind = method[3:].lower()
     return {
@@ -80,11 +81,11 @@ async def detail(request, method, values, user):
 
 
 async def cover(request, method, values, user):
-    catalog = request.app.state.catalog
+    catalog = services(request).catalog
     if "size" in values:
         integer(values, "size", 0, 4096)
     data, media_type = await catalog.artwork(
-        request.app.state.http_client, required(values, "id")
+        services(request).http_client, required(values, "id")
     )
     # The provider thumbnail is returned unchanged; size is advisory.
     return Response(data, media_type=media_type)

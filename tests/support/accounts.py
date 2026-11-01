@@ -4,10 +4,10 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from fastapi.testclient import TestClient
 
-from lastbridge.accounts import Accounts
 from lastbridge.config import Settings
-from lastbridge.lastfm import Lastfm
+from lastbridge.providers.lastfm.client import Lastfm
 from support.application import make_app as create_app
+from support.build_accounts import make_accounts
 
 PASSWORD = "browser password for tests"
 
@@ -60,7 +60,7 @@ def finish_link(client, state, token=TOKEN):
 
 @pytest.fixture
 def service(tmp_path, monkeypatch):
-    store = Accounts(tmp_path / "data")
+    store = make_accounts(tmp_path / "data")
     store.create_user("admin", PASSWORD, bootstrap=True)
     store.create_user("alice", PASSWORD)
     calls = []

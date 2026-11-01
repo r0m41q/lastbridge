@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import sqlite3
 import time
 from collections import OrderedDict
 from uuid import NAMESPACE_URL, uuid5
@@ -14,7 +13,7 @@ from lastbridge.features.radio.application.ports import (
     TasteProvider,
 )
 from lastbridge.shared.dates import date
-from lastbridge.shared.errors import CatalogError
+from lastbridge.shared.errors import CatalogError, StorageError
 from lastbridge.shared.recordings import recording_key
 
 logger = logging.getLogger(__name__)
@@ -112,7 +111,7 @@ class Radio:
             while len(self.warmed) > 128:
                 self.warmed.popitem(last=False)
             self.task(source)
-        except CatalogError, sqlite3.Error, OSError:
+        except CatalogError, StorageError, OSError:
             # A best-effort metadata warm must not prevent playback.
             logger.debug("Radio metadata warm skipped")
 
@@ -219,7 +218,7 @@ class Radio:
                     )
                 self.publish(user, seed, candidates, generation)
                 return self.library.decorate(user["id"], result[:count])
-        except (CatalogError, TimeoutError, sqlite3.Error, OSError) as error:
+        except (CatalogError, TimeoutError, StorageError, OSError) as error:
             # Fixed categories only, without IDs, provider URLs or user data.
             if isinstance(error, CatalogError):
                 reason = {

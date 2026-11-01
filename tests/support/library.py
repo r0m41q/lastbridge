@@ -1,10 +1,10 @@
 import pytest
 
-from lastbridge.accounts import Accounts
-from lastbridge.audio import AudioCache
-from lastbridge.catalog import Catalog
-from lastbridge.library import Library
 from support.audio import FakeAudio
+from support.build_accounts import make_accounts
+from support.build_audio import make_audio
+from support.build_catalog import make_catalog
+from support.build_library import make_library
 from support.catalog import SONG
 
 
@@ -13,7 +13,7 @@ def saved_service(catalog_service):
     client, app, _, _ = catalog_service
     # Explicitly drive the durable worker in most tests, avoiding scheduling
     # races while still exercising real HTTP mutations, SQLite and filesystem.
-    app.state.audio.provider = FakeAudio()
+    app.state.services.audio.provider = FakeAudio()
     return catalog_service
 
 
@@ -22,23 +22,23 @@ def run(service, function, *args):
 
 
 def user_id(service, name="admin"):
-    return service[1].state.accounts.user(name)["id"]
+    return service[1].state.services.accounts.user(name)["id"]
 
 
 def complete_jobs(service):
-    library = service[1].state.library
+    library = service[1].state.services.library
     while run(service, library.process_one):
         pass
 
 
 def make_store(tmp_path):
-    accounts = Accounts(tmp_path)
+    accounts = make_accounts(tmp_path)
     for name in ("admin", "alice"):
         accounts.create_user(name, "a sufficiently long password")
-    catalog = Catalog(accounts)
+    catalog = make_catalog(accounts)
     song = catalog.song(SONG)
-    library = Library(accounts, catalog, "aac")
-    audio = AudioCache(
+    library = make_library(accounts, catalog, "aac")
+    audio = make_audio(
         tmp_path / "cache" / "audio",
         saved_directory=tmp_path / "saved" / "audio",
         budget=32768,

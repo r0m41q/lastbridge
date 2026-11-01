@@ -3,10 +3,8 @@ import copy
 import pytest
 from fastapi.testclient import TestClient
 
-from lastbridge.catalog import (
-    CatalogError,
-)
 from lastbridge.config import Settings
+from lastbridge.shared.errors import CatalogError
 from support.application import make_app as create_app
 
 ARTIST = "UC_test_artist"
@@ -107,8 +105,8 @@ class FakeProvider:
 def catalog_service(tmp_path):
     app = create_app(Settings(_env_file=None, data_dir=tmp_path / "data"))
     with TestClient(app) as client:
-        client.portal.call(app.state.radio.close)
-        store = app.state.accounts
+        client.portal.call(app.state.services.radio.close)
+        store = app.state.services.accounts
         keys = {}
         for index, name in enumerate(("admin", "alice", "unlinked")):
             store.create_user(
@@ -117,12 +115,12 @@ def catalog_service(tmp_path):
             user = store.user(name)
             keys[name] = store.rotate_client_secret(user["id"])
             if name != "unlinked":
-                with store.transaction() as connection:
+                with store.repository.database.transaction() as connection:
                     connection.execute(
                         "UPDATE users SET link_status='linked' WHERE id=?",
                         (user["id"],),
                     )
-        provider = app.state.catalog.provider
+        provider = app.state.services.catalog.provider
         yield client, app, provider, keys
 
 

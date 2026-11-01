@@ -17,6 +17,7 @@ from lastbridge.transport.browser.dependencies import (
     protected_form,
 )
 from lastbridge.transport.browser.rendering import Page, message, render
+from lastbridge.transport.http.context import services
 from lastbridge.transport.http.parameters import parameters
 
 router = APIRouter()
@@ -48,9 +49,9 @@ async def login(request: Request):
     username, password = values.get("username", ""), values.get("password", "")
     if len(username) > 64 or len(password) > 256:
         raise HTTPException(400, "Invalid sign-in")
-    async with request.app.state.password_limit:
+    async with services(request).password_limit:
         token = await run_in_threadpool(
-            request.app.state.accounts.login,
+            services(request).accounts.login,
             username,
             password,
             request.client.host if request.client else "unknown",
@@ -61,7 +62,7 @@ async def login(request: Request):
         )
     old_token = request.cookies.get(COOKIE)
     if old_token:
-        request.app.state.accounts.logout(old_token)
+        services(request).accounts.logout(old_token)
     response = RedirectResponse("/", status_code=303)
     response.set_cookie(
         COOKIE,
@@ -78,7 +79,7 @@ async def login(request: Request):
 @router.post("/logout")
 async def logout(request: Request):
     await protected_form(request)
-    request.app.state.accounts.logout(request.cookies.get(COOKIE, ""))
+    services(request).accounts.logout(request.cookies.get(COOKIE, ""))
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(COOKIE)
     return response
@@ -90,9 +91,9 @@ async def create_user(request: Request):
     if not user["admin"]:
         raise HTTPException(403, "Administrator required")
     try:
-        async with request.app.state.password_limit:
+        async with services(request).password_limit:
             await run_in_threadpool(
-                request.app.state.accounts.create_user,
+                services(request).accounts.create_user,
                 values.get("username", ""),
                 values.get("password", ""),
             )
@@ -111,7 +112,7 @@ async def client_password(request: Request):
     user, _ = await protected_form(request)
     if user["link_status"] != "linked":
         raise HTTPException(403, "Link Last.fm first")
-    value = request.app.state.accounts.rotate_client_secret(user["id"])
+    value = services(request).accounts.rotate_client_secret(user["id"])
     return render(
         "accounts/client_password.html",
         Page("Client password"),
@@ -123,16 +124,17 @@ async def client_password(request: Request):
 @router.post("/lastfm/link")
 async def start_link(request: Request):
     user, _ = await protected_form(request)
-    if not request.app.state.lastfm.configured:
+    if not services(request).lastfm.configured:
         raise HTTPException(503, "Last.fm is not configured")
-    state = request.app.state.accounts.start_link(user["token_hash"])
+    state = services(request).accounts.start_link(user["token_hash"])
     callback = (
         request.app.state.config.public_url
         + "/lastfm/callback?"
         + (urlencode({"state": state}))
     )
     return RedirectResponse(
-        request.app.state.lastfm.authorization_url(callback), status_code=303
+        services(request).lastfm.authorization_url(callback),
+        status_code=303,
     )
 
 
@@ -146,26 +148,26 @@ async def callback(request: Request):
     if (
         not AUTH_VALUE.fullmatch(token)
         or len(state) != 43
-        or not request.app.state.lastfm.configured
-        or not request.app.state.accounts.claim_link(
+        or not services(request).lastfm.configured
+        or not services(request).accounts.claim_link(
             state, token, user["token_hash"]
         )
     ):
         raise HTTPException(400, "Invalid or expired link; start again")
     try:
-        name, secret = await request.app.state.lastfm.exchange(
-            request.app.state.http_client, token
+        name, secret = await services(request).lastfm.exchange(
+            services(request).http_client, token
         )
     except LastfmError:
         return render(
             "accounts/link_failed.html", Page("Link failed"), 502, user=user
         )
-    if not request.app.state.accounts.finish_link(
+    if not services(request).accounts.finish_link(
         user["token_hash"], name, secret
     ):
         raise HTTPException(400, "Session expired; start a new Last.fm link")
-    request.app.state.sync.linked(user["id"])
-    request.app.state.mixes.linked(user["id"])
+    services(request).sync.linked(user["id"])
+    services(request).mixes.linked(user["id"])
     # Remove the provider token and state from the address bar immediately.
     return RedirectResponse("/", status_code=303)
 
@@ -179,5 +181,5 @@ async def account(request: Request):
         "accounts/overview.html",
         Page("Your account", "/", "dashboard"),
         user=user,
-        **overview(request.app.state, user),
+        **overview(services(request), user),
     )

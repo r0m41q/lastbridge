@@ -9,9 +9,11 @@ from tempfile import TemporaryFile
 import httpx
 from starlette.concurrency import run_in_threadpool
 
-from lastbridge.accounts import Accounts
-from lastbridge.audio import AudioCache
 from lastbridge.config import Settings
+from lastbridge.features.accounts.adapters.sqlite.repository import (
+    AccountRepository,
+)
+from lastbridge.features.accounts.application.service import Accounts
 from lastbridge.features.catalog.adapters.http.artwork import ArtworkLookup
 from lastbridge.features.catalog.adapters.sqlite.repository import (
     CatalogRepository,
@@ -44,12 +46,15 @@ from lastbridge.features.lyrics.adapters.sqlite.repository import (
     LyricsRepository,
 )
 from lastbridge.features.lyrics.application.service import Lyrics
+from lastbridge.features.playback.adapters.filesystem.storage import AudioFiles
+from lastbridge.features.playback.adapters.http.response import AudioResponse
 from lastbridge.features.playback.adapters.youtube.provider import (
     AudioProvider,
 )
 from lastbridge.features.playback.application.ports import (
     AudioProvider as AudioProviderPort,
 )
+from lastbridge.features.playback.application.service import AudioCache
 from lastbridge.features.playlists.adapters.sqlite.repository import (
     PlaylistRepository,
 )
@@ -90,7 +95,10 @@ class Services:
     password_limit: asyncio.Semaphore
 
 
-def account_storage(config: Settings):
+def account_storage(
+    config: Settings,
+) -> tuple[Database, Credentials, Accounts]:
+    config.data_dir.mkdir(parents=True, exist_ok=True)
     credentials = Credentials(
         config.data_dir, config.data_dir / "lastbridge.sqlite3"
     )
@@ -99,7 +107,7 @@ def account_storage(config: Settings):
     return (
         database,
         credentials,
-        Accounts(database=database, credentials=credentials),
+        Accounts(AccountRepository(database), credentials),
     )
 
 
@@ -154,17 +162,21 @@ async def bootstrap(
             ) from None
 
         try:
-            audio = AudioCache(
+            storage = AudioFiles(
                 config.data_dir / "cache" / "audio",
                 budget=config.audio_cache_bytes,
                 maximum=config.audio_file_max_bytes,
                 reserve=config.audio_free_reserve_bytes,
                 policy=config.audio_policy,
-                provider=selected.audio
-                if selected.audio is not None
-                else AudioProvider(),
                 saved_directory=config.data_dir / "saved" / "audio",
                 pins=library.pins(),
+            )
+            audio = AudioCache(
+                storage,
+                selected.audio
+                if selected.audio is not None
+                else AudioProvider(),
+                AudioResponse,
             )
         except Exception:
             raise RuntimeError("Cannot initialize audio cache") from None

@@ -3,6 +3,8 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
+from lastbridge.shared.errors import StorageError
+
 
 class Database:
     def __init__(self, directory: Path):
@@ -14,13 +16,16 @@ class Database:
 
     @contextmanager
     def connection(self):
-        connection = sqlite3.connect(self.path, timeout=5)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys=ON")
         try:
-            yield connection
-        finally:
-            connection.close()
+            connection = sqlite3.connect(self.path, timeout=5)
+            try:
+                connection.row_factory = sqlite3.Row
+                connection.execute("PRAGMA foreign_keys=ON")
+                yield connection
+            finally:
+                connection.close()
+        except sqlite3.Error as error:
+            raise StorageError("Storage unavailable") from error
 
     @contextmanager
     def transaction(self):
