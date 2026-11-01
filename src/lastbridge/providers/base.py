@@ -1,28 +1,20 @@
-from dataclasses import dataclass
+"""Compatibility exports for the probe and unmigrated provider callers."""
+
 from pathlib import Path
 from typing import Any, Protocol
 
+from lastbridge.features.catalog.domain.models import (
+    Candidate,
+    Recording,
+)
+from lastbridge.shared.errors import ProviderError
 
-@dataclass(frozen=True)
-class Recording:
-    artist: str
-    title: str
-    album: str | None = None
-    duration_seconds: float | None = None
-
-
-@dataclass(frozen=True)
-class Candidate:
-    source_id: str
-    title: str
-    artists: tuple[str, ...]
-    album: str | None
-    duration_seconds: float | None
-    catalog_audio: bool
-
-
-class ProviderError(Exception):
-    """Only fixed, public error codes cross the subprocess boundary."""
+__all__ = [
+    "Candidate",
+    "Recording",
+    "MusicProvider",
+    "ProviderError",
+]
 
 
 class MusicProvider(Protocol):

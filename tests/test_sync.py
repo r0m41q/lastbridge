@@ -7,129 +7,30 @@ from urllib.parse import parse_qs, urlencode
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from test_accounts import PASSWORD, csrf, drop_sync_tables, login
-from test_audio import AUDIO, FakeAudio
-from test_catalog import SONG, FakeProvider, body, get, search
+from support.accounts import PASSWORD, csrf, drop_sync_tables, login
+from support.audio import AUDIO
+from support.catalog import SONG, body, get, search
+from support.sync import (
+    accepted,
+    due,
+    import_steps,
+    page,
+    report,
+    rows,
+    run,
+    transport,
+    uid,
+)
 
 from lastbridge.accounts import Accounts
 from lastbridge.app import create_app
 from lastbridge.catalog import Catalog, CatalogError
 from lastbridge.config import Settings
+from lastbridge.features.catalog.application.service import (
+    Catalog as CatalogService,
+)
 from lastbridge.lastfm import Lastfm
 from lastbridge.recordings import recording_key
-
-
-def accepted(code=0):
-    return {
-        "scrobbles": {
-            "@attr": {
-                "accepted": str(int(code == 0)),
-                "ignored": str(int(code != 0)),
-            },
-            "scrobble": {
-                "ignoredMessage": {"code": str(code), "#text": "secret"}
-            },
-        }
-    }
-
-
-def page(tracks, current=1, total=1):
-    return {
-        "lovedtracks": {
-            "@attr": {"page": str(current), "totalPages": str(total)},
-            "track": [
-                {"artist": {"name": artist}, "name": title}
-                for artist, title in tracks
-            ],
-        }
-    }
-
-
-@pytest.fixture
-def sync_service(tmp_path, monkeypatch):
-    async def taste_rows(self, client, method, **parameters):
-        return []
-
-    monkeypatch.setattr(Lastfm, "taste_rows", taste_rows)
-    app = create_app(
-        Settings(
-            _env_file=None,
-            data_dir=tmp_path / "data",
-            public_url="http://testserver",
-            lastfm_api_key="1" * 32,
-            lastfm_api_secret="2" * 32,
-        )
-    )
-    with TestClient(app) as client:
-        client.portal.call(app.state.radio.close)
-        client.portal.call(app.state.mixes.close)
-        client.portal.call(app.state.sync.close)
-        client.portal.call(app.state.library.close)
-        keys = {}
-        for index, name in enumerate(("admin", "alice")):
-            app.state.accounts.create_user(
-                name, PASSWORD, bootstrap=index == 0
-            )
-            user = app.state.accounts.user(name)
-            with app.state.accounts.transaction() as connection:
-                connection.execute(
-                    "UPDATE users SET lastfm_name=?,lastfm_secret=?,"
-                    "link_status='linked' WHERE id=?",
-                    (
-                        name + "-fm",
-                        app.state.accounts.encrypt(name + "-session"),
-                        user["id"],
-                    ),
-                )
-            keys[name] = app.state.accounts.rotate_client_secret(user["id"])
-            app.state.sync.linked(user["id"])
-        app.state.catalog.provider = FakeProvider()
-        app.state.audio.provider = FakeAudio()
-        yield client, app, app.state.catalog.provider, keys
-
-
-def run(service, function, *args):
-    return service[0].portal.call(function, *args)
-
-
-def uid(service, name="admin"):
-    return service[1].state.accounts.user(name)["id"]
-
-
-def rows(service, table="scrobbles"):
-    with service[1].state.accounts.connection() as connection:
-        return [
-            dict(row) for row in connection.execute(f"SELECT * FROM {table}")
-        ]
-
-
-def due(service):
-    with service[1].state.accounts.transaction() as connection:
-        connection.execute("UPDATE love_imports SET next_attempt=0")
-        connection.execute("UPDATE loved_items SET next_attempt=0")
-        connection.execute("UPDATE scrobbles SET next_attempt=0")
-
-
-def transport(service, handler):
-    async def scenario():
-        async with httpx.AsyncClient(
-            transport=httpx.MockTransport(handler)
-        ) as client:
-            service[1].state.sync.client = client
-            await service[1].state.sync.deliver_one()
-
-    return run(service, scenario)
-
-
-def report(service, song=None, **params):
-    song = song or search(service)["song"][0]
-    return get(
-        service,
-        "scrobble",
-        id=song["id"],
-        time=int((time.time() - 180) * 1000),
-        **params,
-    )
 
 
 def test_reports_deduplicate_atomically_and_keep_private_history(sync_service):
@@ -400,19 +301,6 @@ def test_different_linked_account_never_receives_old_scrobbles(sync_service):
     assert not calls and rows(service)[0]["state"] == "blocked"
     service[1].state.sync.control(uid(service), "retry-scrobbles")
     assert rows(service)[0]["state"] == "blocked"
-
-
-def import_steps(service, handler, count=1):
-    async def scenario():
-        async with httpx.AsyncClient(
-            transport=httpx.MockTransport(handler)
-        ) as client:
-            service[1].state.sync.client = client
-            for _ in range(count):
-                due(service)
-                await service[1].state.sync.import_one()
-
-    run(service, scenario)
 
 
 def test_paginated_import_matches_privately_and_resumes_after_pause(
@@ -791,7 +679,7 @@ def test_background_import_bootstraps_existing_link_and_resumes_disk_cursor(
         raise CatalogError()
 
     monkeypatch.setattr(Lastfm, "loved", loved)
-    monkeypatch.setattr(Catalog, "match_loved", unavailable)
+    monkeypatch.setattr(CatalogService, "match_loved", unavailable)
 
     async def empty_taste(self, client, method, **parameters):
         return []

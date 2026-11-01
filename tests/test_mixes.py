@@ -1,14 +1,19 @@
 import asyncio
-import copy
 import time
 from xml.etree.ElementTree import fromstring
 
 import httpx
 import pytest
-import test_sync
-from test_accounts import csrf, drop_playlist_tables, login
-from test_catalog import SONG, body, get
-from test_sync import rows, run, uid
+from support.accounts import csrf, drop_playlist_tables, login
+from support.catalog import body, get
+from support.mixes import (
+    pair,
+    playlists,
+    refresh,
+    source,
+    tracks,
+)
+from support.sync import rows, run, uid
 
 import lastbridge.mixes as mix_module
 from lastbridge.accounts import Accounts
@@ -16,67 +21,6 @@ from lastbridge.catalog import CatalogError
 from lastbridge.lastfm import Lastfm, LastfmRequestError
 from lastbridge.mixes import Mixes
 from lastbridge.recordings import recording_key
-
-sync_service = test_sync.sync_service
-
-
-def source(index, title=None):
-    return copy.deepcopy(SONG) | {
-        "videoId": f"{index:011d}",
-        "title": title or f"Track {index}",
-        "artists": [{"name": "Test Artist", "id": "UC_test_artist"}],
-    }
-
-
-def pair(index):
-    return "Test Artist", f"Track {index}"
-
-
-@pytest.fixture
-def mix_service(sync_service, monkeypatch):
-    service = sync_service
-    app = service[1]
-    for name in ("admin", "alice"):
-        app.state.mixes.linked(uid(service, name))
-    calls = []
-
-    async def taste(client, method, **params):
-        calls.append((method, params))
-        return {
-            "user.getTopTracks": [pair(1)],
-            "user.getTopArtists": [("Test Artist", "Test Artist")],
-            "user.getRecentTracks": [pair(2), pair(2)],
-            "track.getSimilar": [pair(1), pair(3), pair(3), pair(4)],
-        }.get(method, [])
-
-    async def fetch(payload):
-        query = payload["query"]
-        return {
-            "songs": [
-                source(i) for i in range(1, 9) if query == " ".join(pair(i))
-            ]
-        }
-
-    monkeypatch.setattr(app.state.lastfm, "taste_rows", taste)
-    monkeypatch.setattr(app.state.catalog.provider, "fetch", fetch)
-    return service, calls
-
-
-def refresh(service):
-    assert run(service, service[1].state.mixes.refresh_one)
-
-
-def playlists(service, **params):
-    return body(get(service, "getPlaylists", **params))["playlists"][
-        "playlist"
-    ]
-
-
-def tracks(service, name, **params):
-    item = next(p for p in playlists(service, **params) if p["name"] == name)
-    return body(get(service, "getPlaylist", id=item["id"], **params))[
-        "playlist"
-    ]["entry"]
 
 
 def test_private_stable_playlists_policies_and_no_audio_saves(mix_service):

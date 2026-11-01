@@ -5,47 +5,20 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import test_catalog
-from test_catalog import body, get, search
+from support.audio import (
+    AUDIO,
+    OTHER,
+    SOURCE,
+    THIRD,
+    FakeAudio,
+    cache_at,
+)
+from support.catalog import body, get, search
 
-from lastbridge.audio import AudioCache, AudioProvider
+from lastbridge.audio import AudioProvider
 from lastbridge.catalog import CatalogError
 from lastbridge.providers.audio_worker import choose_format, download
 from lastbridge.providers.base import ProviderError
-
-catalog_service = test_catalog.catalog_service
-
-SOURCE = "khnokW3Mw24"
-OTHER = "HYXGY67fATk"
-THIRD = "d8CbKd69KT8"
-AUDIO = bytes(range(256)) * 32
-
-
-class FakeAudio:
-    def __init__(self, data=AUDIO):
-        self.data = data
-        self.calls = []
-        self.fail = False
-
-    async def fetch(self, source, policy, directory, maximum, reserve):
-        self.calls.append(source)
-        extension = "m4a" if policy == "aac" else "webm"
-        path = directory / f"audio.{extension}"
-        path.write_bytes(self.data)
-        if self.fail:
-            raise CatalogError(0, "Audio provider unavailable; retry")
-        return {"policy": policy}
-
-
-def cache_at(tmp_path, provider=None, **kwargs):
-    return AudioCache(
-        tmp_path / "audio",
-        budget=32_768,
-        maximum=8192,
-        reserve=0,
-        provider=provider or FakeAudio(),
-        **kwargs,
-    )
 
 
 def test_authenticated_stream_download_ranges_and_head(catalog_service):
@@ -497,7 +470,7 @@ def test_manifest_write_failure_does_not_publish_audio(tmp_path, monkeypatch):
         def fail(*args):
             raise OSError("disk full")
 
-        monkeypatch.setattr(cache, "manifest", fail)
+        monkeypatch.setattr(cache.storage, "manifest", fail)
         with pytest.raises(CatalogError, match="acquisition failed"):
             await cache.acquire(SOURCE)
         assert not cache.entries and not cache.leases and not cache.reserved

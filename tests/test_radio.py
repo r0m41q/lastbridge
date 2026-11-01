@@ -1,76 +1,25 @@
 import asyncio
-import copy
 import json
 import time
 from xml.etree.ElementTree import fromstring
 
 import httpx
 import pytest
-import test_sync
-from test_accounts import csrf, drop_playlist_tables, login
-from test_catalog import SONG, body, get, search
-from test_sync import rows, run, uid
+from support import sync as sync_support
+from support.accounts import csrf, drop_playlist_tables, login
+from support.catalog import SONG, body, get, search
+from support.radio import (
+    request,
+    selected,
+    track,
+)
+from support.sync import rows, run, uid
 
 import lastbridge.radio as radio_module
 from lastbridge.accounts import Accounts
 from lastbridge.catalog import CatalogError
 from lastbridge.providers.catalog_worker import execute
 from lastbridge.radio import Radio
-
-sync_service = test_sync.sync_service
-
-
-def track(index, **changes):
-    return (
-        copy.deepcopy(SONG)
-        | {
-            "videoId": f"{index:011d}",
-            "title": f"Track {index}",
-            "length": "3:04",
-            "duration_seconds": None,
-        }
-        | changes
-    )
-
-
-@pytest.fixture
-def radio_service(sync_service, monkeypatch):
-    service = sync_service
-    app = service[1]
-    app.state.radio = Radio(
-        app.state.accounts, app.state.catalog, app.state.library
-    )
-    calls = []
-    original = app.state.catalog.provider.fetch
-
-    async def fetch(payload):
-        if payload["operation"] != "radio":
-            return await original(payload)
-        calls.append(payload)
-        return {
-            "tracks": [
-                SONG,
-                track(1),
-                track(1),
-                track(2),
-                track(3),
-                track(4, isAvailable=False),
-                track(5, videoType="MUSIC_VIDEO_TYPE_OMV"),
-            ]
-        }
-
-    monkeypatch.setattr(app.state.catalog.provider, "fetch", fetch)
-    search(service)
-    return service, calls
-
-
-def request(service, **params):
-    seed = search(service)["song"][0]
-    return get(service, "getSimilarSongs", id=seed["id"], **params)
-
-
-def selected(response, field="similarSongs"):
-    return body(response)[field]["song"]
 
 
 def test_song_radio_filters_duplicates_unavailable_and_seed(radio_service):
@@ -464,7 +413,9 @@ def test_listening_session_seek_save_replay_and_scrobble(radio_service):
     async def deliver():
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(
-                lambda request: httpx.Response(200, json=test_sync.accepted())
+                lambda request: httpx.Response(
+                    200, json=sync_support.accepted()
+                )
             )
         ) as upstream:
             app.state.sync.client = upstream

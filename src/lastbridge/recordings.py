@@ -1,9 +1,7 @@
-import hashlib
-import json
+"""Compatibility export for R2 discovery/sync callers."""
 
-from lastbridge.providers.youtube import normalize, normalize_title
+from lastbridge.shared.recordings import recording_key
 
-
-def recording_key(artist, title):
-    values = [normalize(artist), normalize_title(title)]
-    return hashlib.sha256(json.dumps(values).encode()).hexdigest()
+__all__ = [
+    "recording_key",
+]

@@ -1,15 +1,10 @@
 from html.parser import HTMLParser
 
 import pytest
-import test_accounts
-import test_sync
-from test_accounts import PASSWORD, csrf, login
+from support.accounts import PASSWORD, csrf, login
 
 from lastbridge.accounts import Accounts, validate_account
 from lastbridge.ui import document
-
-service = test_accounts.service
-sync_service = test_sync.sync_service
 
 
 class Markup(HTMLParser):

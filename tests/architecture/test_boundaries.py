@@ -1,0 +1,122 @@
+"""Enforce dependency direction for the R1 packages during the migration."""
+
+import ast
+import importlib.util
+import re
+import sys
+from pathlib import Path
+
+import pytest
+
+SOURCE = Path(__file__).resolve().parents[2] / "src" / "lastbridge"
+FEATURES = ("accounts", "catalog", "library", "playback")
+
+
+def imports(module, tree):
+    package = module.rsplit(".", 1)[0]
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            yield from (alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            name = node.module or ""
+            if node.level:
+                name = importlib.util.resolve_name(
+                    "." * node.level + name, package
+                )
+            yield name
+            yield from (name + "." + alias.name for alias in node.names)
+
+
+def violations(module, source):
+    tree = ast.parse(source)
+    parts = module.split(".")
+    problems = []
+    feature = parts[2]
+    layer = parts[3]
+    for name in imports(module, tree):
+        root = name.split(".")[0]
+        if layer in ("domain", "application"):
+            allowed = (
+                root in sys.stdlib_module_names
+                or name.startswith("lastbridge.shared.")
+                or name.startswith(f"lastbridge.features.{feature}.domain")
+                or (
+                    layer == "application"
+                    and (
+                        name.startswith(
+                            f"lastbridge.features.{feature}.application"
+                        )
+                        or root == "anyio"
+                    )
+                )
+            )
+            if not allowed:
+                problems.append(name)
+        if ".adapters.browser" in module and ".adapters.subsonic" in name:
+            problems.append(name)
+        if ".adapters.subsonic" in module and ".adapters.browser" in name:
+            problems.append(name)
+    if layer in ("domain", "application"):
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if re.match(
+                    r"\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|PRAGMA)\s",
+                    node.value,
+                ):
+                    problems.append("SQL outside SQLite adapter")
+    return problems
+
+
+@pytest.mark.parametrize("feature", FEATURES)
+def test_feature_dependency_direction(feature):
+    errors = []
+    for path in (SOURCE / "features" / feature).rglob("*.py"):
+        module = "lastbridge." + ".".join(
+            path.relative_to(SOURCE).with_suffix("").parts
+        )
+        errors.extend(
+            f"{module}: {problem}"
+            for problem in violations(module, path.read_text())
+        )
+    assert not errors, "\n".join(errors)
+
+
+@pytest.mark.parametrize(
+    "layer,source",
+    [
+        ("domain", "from fastapi import Request"),
+        ("application", "from ..adapters.sqlite import repository"),
+        ("application", "from lastbridge.accounts import Accounts"),
+        (
+            "application",
+            "def helper():\n"
+            "    from lastbridge.features.catalog.application import service",
+        ),
+        ("application", 'query = "SELECT * FROM users"'),
+        (
+            "adapters.browser",
+            "from ..subsonic import handlers",
+        ),
+    ],
+)
+def test_guard_rejects_boundary_violations(layer, source):
+    assert violations(f"lastbridge.features.library.{layer}.example", source)
+
+
+def test_platform_does_not_import_features_or_http():
+    for path in (SOURCE / "platform").rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        for name in imports("lastbridge.platform.example", tree):
+            assert not name.startswith(
+                ("lastbridge.features.", "fastapi", "starlette")
+            )
+
+
+def test_test_support_has_no_test_module_dependencies():
+    tests = SOURCE.parents[1] / "tests"
+    for path in tests.rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        for name in imports("tests.example", tree):
+            assert not any(
+                part.startswith("test_") for part in name.split(".")
+            )

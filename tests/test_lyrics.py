@@ -6,15 +6,12 @@ from xml.etree.ElementTree import fromstring
 
 import httpx
 import pytest
-import test_catalog
-from test_accounts import drop_playlist_tables
-from test_catalog import body, get, search
+from support.accounts import drop_playlist_tables
+from support.catalog import body, get, search
 
 import lastbridge.lyrics as lyrics_module
 from lastbridge.accounts import Accounts
 from lastbridge.lyrics import Lyrics, retry_after, structured, timed_lines
-
-catalog_service = test_catalog.catalog_service
 
 # Synthetic text: fractional precision, repeated stamps and blank cues.
 LRC = (

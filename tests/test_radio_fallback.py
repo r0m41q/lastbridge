@@ -3,17 +3,14 @@ import time
 
 import httpx
 import pytest
-import test_radio
-from test_catalog import SONG, body, get, search
-from test_radio import request, selected, track
-from test_sync import rows, run, uid
+from support.catalog import SONG, body, get, search
+from support.radio import request, selected, track
+from support.sync import rows, run, uid
 
 import lastbridge.radio as radio_module
 from lastbridge.catalog import CatalogError
 from lastbridge.lastfm import Lastfm, LastfmRequestError
 
-radio_service = test_radio.radio_service
-sync_service = test_radio.sync_service
 ORIGINAL_TASTE = Lastfm.taste_rows
 
 

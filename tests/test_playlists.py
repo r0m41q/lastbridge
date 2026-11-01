@@ -4,20 +4,16 @@ from urllib.parse import urlencode
 from xml.etree.ElementTree import fromstring
 
 import pytest
-import test_library
-from test_accounts import drop_playlist_tables
-from test_audio import AUDIO
-from test_catalog import body, get, search
-from test_library import complete_jobs, run, user_id
+from support.accounts import drop_playlist_tables
+from support.audio import AUDIO
+from support.catalog import body, get, search
+from support.library import complete_jobs, run, user_id
 
 from lastbridge.accounts import Accounts
 from lastbridge.audio import AudioCache
 from lastbridge.library import Library
 from lastbridge.playlists import Playlists
 from lastbridge.web import COOKIE
-
-saved_service = test_library.saved_service
-catalog_service = test_library.catalog_service
 
 
 def songs(service):

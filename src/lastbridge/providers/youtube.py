@@ -6,12 +6,26 @@ import signal
 import subprocess
 import sys
 import tempfile
-import unicodedata
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from lastbridge.features.catalog.domain.matching import (
+    match_recording,
+    normalize,
+    normalize_title,
+)
 from lastbridge.providers.base import Candidate, ProviderError, Recording
+
+__all__ = [
+    "YouTubeProvider",
+    "VIDEO_ID",
+    "ERROR_CODES",
+    "run_worker",
+    "match_recording",
+    "normalize",
+    "normalize_title",
+]
 
 VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}\Z")
 ERROR_CODES = frozenset(
@@ -26,55 +40,6 @@ ERROR_CODES = frozenset(
         "sample_failed",
     }
 )
-
-
-def normalize(value: str) -> str:
-    value = unicodedata.normalize("NFKC", value).casefold()
-    return " ".join(re.findall(r"\w+", value))
-
-
-def normalize_title(value: str) -> str:
-    # A trailing performer credit is metadata, not a recording version.
-    value = re.sub(
-        r"\s*[\[(]\s*(?:feat\.?|ft\.?|featuring)\s+[^)\]]+[)\]]\s*$",
-        "",
-        value,
-        flags=re.IGNORECASE,
-    )
-    return normalize(value)
-
-
-def match_recording(
-    recording: Recording, candidates: list[Candidate]
-) -> Candidate:
-    """Fail closed on ambiguous versions; never strip live/remix qualifiers."""
-    matches = {}
-    for candidate in candidates:
-        if not candidate.catalog_audio:
-            continue
-        if normalize_title(candidate.title) != normalize_title(
-            recording.title
-        ):
-            continue
-        if normalize(recording.artist) not in {
-            normalize(artist) for artist in candidate.artists
-        }:
-            continue
-        if recording.album and normalize(candidate.album or "") != normalize(
-            recording.album
-        ):
-            continue
-        if recording.duration_seconds is not None and (
-            candidate.duration_seconds is None
-            or abs(candidate.duration_seconds - recording.duration_seconds) > 3
-        ):
-            continue
-        matches[candidate.source_id] = candidate
-    if not matches:
-        raise ProviderError("no_match")
-    if len(matches) > 1:
-        raise ProviderError("ambiguous_match")
-    return next(iter(matches.values()))
 
 
 def run_worker(payload: dict[str, Any], timeout: float) -> dict[str, Any]:

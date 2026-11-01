@@ -39,6 +39,34 @@ Neither health endpoint calls a music provider or Last.fm. Readiness means local
 startup completed; it does not claim that music playback is available or perform
 a continuous disk/third-party availability check.
 
+## Code organization
+
+The project is moving to feature-first hexagonal packages. Accounts, catalog,
+library and playback currently use this layout under `src/lastbridge/features/`:
+
+```text
+feature/
+  domain/          # Pure rules and data types
+  application/     # Focused services, worker orchestration and required ports
+  adapters/        # SQLite, filesystem, HTTP and provider implementations
+```
+
+`bootstrap.py` constructs dependencies and owns their startup/shutdown.
+`platform/` owns database connections, historical migrations and credential-key
+handling. `shared/` contains only common errors and recording normalization.
+Application services receive interfaces rather than importing concrete adapters.
+Architecture tests enforce the migrated packages' dependency direction.
+
+The original account/catalog/audio/library modules temporarily preserve imports
+and constructor signatures for callers that have not migrated yet. The remaining
+features and browser/OpenSubsonic presentation move in subsequent reviewed changes.
+The database remains schema 9; restructuring does not reset accounts or saved data.
+
+Shared test fixtures and fakes live in `tests/support/`, registered centrally by
+`tests/conftest.py`. Their app factory injects fake providers and disables automatic
+workers; tests of background execution explicitly start the relevant worker.
+Production worker startup remains enabled by default.
+
 ## Accounts and Last.fm linking
 
 Create the first administrator from a trusted local terminal. Passwords use

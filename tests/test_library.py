@@ -5,42 +5,21 @@ from urllib.parse import urlencode
 from xml.etree.ElementTree import fromstring
 
 import pytest
-import test_catalog
-from test_accounts import csrf, drop_sync_tables
-from test_audio import AUDIO, OTHER, SOURCE, THIRD, FakeAudio
-from test_catalog import SONG, body, get, search
+from support.accounts import csrf, drop_sync_tables
+from support.audio import AUDIO, OTHER, SOURCE, THIRD, FakeAudio
+from support.catalog import SONG, body, get, search
+from support.library import (
+    complete_jobs,
+    make_store,
+    run,
+    user_id,
+)
 
 from lastbridge.accounts import Accounts
 from lastbridge.audio import AudioCache
 from lastbridge.catalog import Catalog, CatalogError, identity
 from lastbridge.library import Library
 from lastbridge.web import COOKIE
-
-catalog_service = test_catalog.catalog_service
-
-
-@pytest.fixture
-def saved_service(catalog_service):
-    client, app, _, _ = catalog_service
-    # Explicitly drive the durable worker in most tests, avoiding scheduling
-    # races while still exercising real HTTP mutations, SQLite and filesystem.
-    client.portal.call(app.state.library.close)
-    app.state.audio.provider = FakeAudio()
-    return catalog_service
-
-
-def run(service, function, *args):
-    return service[0].portal.call(function, *args)
-
-
-def user_id(service, name="admin"):
-    return service[1].state.accounts.user(name)["id"]
-
-
-def complete_jobs(service):
-    library = service[1].state.library
-    while run(service, library.process_one):
-        pass
 
 
 def test_song_heart_is_immediate_private_and_idempotent(saved_service):
@@ -338,26 +317,6 @@ def test_failure_backoff_manual_retry_and_private_browser(saved_service):
     assert not library.downloads(user_id(saved_service, "alice"))
 
 
-def make_store(tmp_path):
-    accounts = Accounts(tmp_path)
-    for name in ("admin", "alice"):
-        accounts.create_user(name, "a sufficiently long password")
-    catalog = Catalog(accounts)
-    song = catalog.song(SONG)
-    library = Library(accounts, catalog, "aac")
-    audio = AudioCache(
-        tmp_path / "cache" / "audio",
-        saved_directory=tmp_path / "saved" / "audio",
-        budget=32768,
-        maximum=8192,
-        reserve=0,
-        provider=FakeAudio(),
-        pins=library.pins(),
-    )
-    library.audio = audio
-    return accounts, catalog, library, audio, song
-
-
 def test_restart_preserves_intent_and_reuses_completed_files(tmp_path):
     async def scenario():
         accounts, _, library, audio, song = make_store(tmp_path)
@@ -559,20 +518,20 @@ def test_promotion_failure_keeps_favorite_and_reuses_cache_on_retry(
         accounts, _, library, audio, song = make_store(tmp_path)
         uid = accounts.user("admin")["id"]
         await library.change(uid, [(song["id"], None)], True)
-        original = audio.manifest
+        original = audio.storage.manifest
 
         def fail_saved(key, entry):
             if entry.get("saved"):
                 raise OSError("disk full")
             original(key, entry)
 
-        monkeypatch.setattr(audio, "manifest", fail_saved)
+        monkeypatch.setattr(audio.storage, "manifest", fail_saved)
         await library.process_one()
         assert library.stars(uid)
         assert library.downloads(uid)[0]["state"] == "pending"
         assert not audio.entries[f"{SOURCE}-aac"].get("saved")
         assert audio.provider.calls == [SOURCE]
-        monkeypatch.setattr(audio, "manifest", original)
+        monkeypatch.setattr(audio.storage, "manifest", original)
         library.retry(uid)
         await library.process_one()
         assert audio.entries[f"{SOURCE}-aac"]["saved"]
@@ -593,7 +552,7 @@ def test_completed_playback_survives_failed_lru_metadata_write(
         def full(*args):
             raise OSError("disk full")
 
-        monkeypatch.setattr(audio, "manifest", full)
+        monkeypatch.setattr(audio.storage, "manifest", full)
         key, entry = await audio.acquire(SOURCE)
         assert audio.path(key, entry).read_bytes() == AUDIO
         await audio.release(key)
@@ -723,6 +682,7 @@ def test_background_worker_runs_from_http_heart_without_manual_drive(
 
     _, app, _, _ = catalog_service
     app.state.audio.provider = FakeAudio()
+    run(catalog_service, app.state.library.start, app.state.audio)
     song = search(catalog_service)["song"][0]["id"]
     assert body(get(catalog_service, "star", id=song))["status"] == "ok"
     run(

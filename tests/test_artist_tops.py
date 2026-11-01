@@ -3,12 +3,9 @@ import time
 from xml.etree.ElementTree import fromstring
 
 import pytest
-import test_catalog
-from test_catalog import ARTIST, SONG, body, get, search
+from support.catalog import ARTIST, SONG, body, get, search
 
 from lastbridge.catalog import CatalogError
-
-catalog_service = test_catalog.catalog_service
 
 
 @pytest.fixture

@@ -2,18 +2,16 @@ import time
 from types import SimpleNamespace
 
 import pytest
-import test_sync
 from pydantic import ValidationError
-from test_accounts import csrf, login
-from test_catalog import body, get, search
-from test_sync import rows, run, uid
+from support.accounts import csrf, login
+from support.catalog import body, get, search
+from support.sync import rows, run, uid
 
 import lastbridge.mixes as mix_module
 from lastbridge.accounts import Accounts
 from lastbridge.catalog import CatalogError
 from lastbridge.config import Settings
 
-sync_service = test_sync.sync_service
 DAY = 86400
 
 
