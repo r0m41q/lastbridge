@@ -102,7 +102,7 @@ def transport(service, handler):
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(handler)
         ) as client:
-            service[1].state.sync.client = client
+            service[1].state.sync.remote.client = client
             await service[1].state.sync.deliver_one()
 
     return run(service, scenario)
@@ -124,7 +124,7 @@ def import_steps(service, handler, count=1):
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(handler)
         ) as client:
-            service[1].state.sync.client = client
+            service[1].state.sync.remote.client = client
             for _ in range(count):
                 due(service)
                 await service[1].state.sync.import_one()

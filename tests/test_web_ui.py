@@ -108,7 +108,7 @@ def test_user_values_are_escaped_in_shared_shell():
 
 @pytest.mark.parametrize("length", [7, 257])
 def test_password_bounds_reject_outside_eight_to_256(length):
-    with pytest.raises(ValueError, match="8–256"):
+    with pytest.raises(ValueError, match="8-256"):
         validate_account("listener", "x" * length)
 
 

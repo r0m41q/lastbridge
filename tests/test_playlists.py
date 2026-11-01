@@ -634,7 +634,7 @@ def test_seven_to_eight_upgrade_preserves_state(
 
 
 def test_playlist_limit_is_atomic(saved_service, monkeypatch):
-    import lastbridge.playlists as module
+    import lastbridge.features.playlists.application.service as module
 
     monkeypatch.setattr(module, "MAX_PLAYLISTS", 1)
     create(saved_service)
@@ -697,3 +697,43 @@ def test_old_reconciliation_cannot_restore_a_released_job(saved_service):
         assert row_count(service, "save_jobs") == 0
 
     run(service, exercise)
+
+
+def test_retention_write_failure_rolls_back_playlist_and_jobs(
+    saved_service, monkeypatch
+):
+    service = saved_service
+    app = service[1]
+    item = create(service, songs(service))
+    user = app.state.accounts.user("admin")
+
+    def snapshot():
+        with app.state.accounts.connection() as connection:
+            return {
+                table: [dict(row) for row in connection.execute(query)]
+                for table, query in (
+                    ("playlists", "SELECT * FROM playlists ORDER BY id"),
+                    ("jobs", "SELECT * FROM save_jobs ORDER BY source"),
+                    (
+                        "retained",
+                        "SELECT * FROM retained_tracks ORDER BY song_id",
+                    ),
+                    (
+                        "activity",
+                        "SELECT id,library_changed FROM users ORDER BY id",
+                    ),
+                )
+            }
+
+    before = snapshot()
+    original = app.state.library.repository.schedule
+
+    def failed(connection):
+        original(connection)
+        raise RuntimeError("synthetic retention failure")
+
+    monkeypatch.setattr(app.state.library.repository, "schedule", failed)
+    with pytest.raises(RuntimeError, match="synthetic retention failure"):
+        run(service, app.state.playlists.keep, user, item["id"], True)
+    assert snapshot() == before
+    assert not app.state.audio.provider.calls

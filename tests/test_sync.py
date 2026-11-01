@@ -581,7 +581,7 @@ def test_cancelled_delivery_is_not_silently_retried(sync_service):
             transport=httpx.MockTransport(handler)
         ) as client:
             sync = service[1].state.sync
-            sync.client = client
+            sync.remote.client = client
             task = asyncio.create_task(sync.deliver_one())
             await entered.wait()
             task.cancel()

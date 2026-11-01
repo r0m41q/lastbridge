@@ -7,7 +7,7 @@ from support.accounts import csrf, login
 from support.catalog import body, get, search
 from support.sync import rows, run, uid
 
-import lastbridge.mixes as mix_module
+import lastbridge.features.discovery.adapters.sqlite.repository as mix_module
 from lastbridge.accounts import Accounts
 from lastbridge.catalog import CatalogError
 from lastbridge.config import Settings

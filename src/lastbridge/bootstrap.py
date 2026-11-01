@@ -24,25 +24,43 @@ from lastbridge.features.catalog.adapters.youtube.provider import (
 )
 from lastbridge.features.catalog.application.ports import MetadataPort
 from lastbridge.features.catalog.application.service import Catalog
+from lastbridge.features.discovery.adapters.sqlite.repository import (
+    MixRepository,
+)
+from lastbridge.features.discovery.application.service import Mixes
+from lastbridge.features.lastfm_sync.adapters.sqlite.repository import (
+    SyncRepository,
+)
+from lastbridge.features.lastfm_sync.application.service import LastfmSync
 from lastbridge.features.library.adapters.sqlite.repository import (
     LibraryRepository,
 )
 from lastbridge.features.library.application.service import Library
+from lastbridge.features.lyrics.adapters.lrclib.provider import Lrclib
+from lastbridge.features.lyrics.adapters.sqlite.repository import (
+    LyricsRepository,
+)
+from lastbridge.features.lyrics.application.service import Lyrics
 from lastbridge.features.playback.adapters.youtube.provider import (
     AudioProvider,
 )
 from lastbridge.features.playback.application.ports import (
     AudioProvider as AudioProviderPort,
 )
-from lastbridge.lastfm import Lastfm
-from lastbridge.lyrics import Lyrics
-from lastbridge.mixes import Mixes
+from lastbridge.features.playlists.adapters.sqlite.repository import (
+    PlaylistRepository,
+)
+from lastbridge.features.playlists.application.service import Playlists
+from lastbridge.features.radio.adapters.catalog import RadioCatalog
+from lastbridge.features.radio.adapters.sqlite.repository import (
+    RadioRepository,
+)
+from lastbridge.features.radio.application.service import Radio
 from lastbridge.platform.credentials import Credentials
 from lastbridge.platform.database import Database
 from lastbridge.platform.migrations import migrate
-from lastbridge.playlists import Playlists
-from lastbridge.radio import Radio
-from lastbridge.sync import LastfmSync
+from lastbridge.providers.lastfm.client import Lastfm
+from lastbridge.providers.lastfm.session import LastfmSession
 
 
 @dataclass(frozen=True)
@@ -160,23 +178,39 @@ async def bootstrap(
                 follow_redirects=False,
             )
         )
-        radio = Radio(accounts, catalog, library, lastfm=lastfm, client=client)
+        radio = Radio(
+            RadioRepository(database),
+            RadioCatalog(catalog),
+            library,
+            LastfmSession(lastfm, client),
+        )
         resources.push_async_callback(radio.close)
-        lyrics = Lyrics(accounts, catalog, client)
+        lyrics = Lyrics(LyricsRepository(database), catalog, Lrclib(client))
         resources.push_async_callback(lyrics.close)
-        sync = LastfmSync(accounts, catalog, library, lastfm, client)
-        resources.push_async_callback(sync.close)
-        mixes = Mixes(
-            accounts,
+        sync = LastfmSync(
+            SyncRepository(database),
             catalog,
             library,
-            lastfm,
-            client,
+            LastfmSession(lastfm, client),
+            credentials,
+        )
+        resources.push_async_callback(sync.close)
+        mixes = Mixes(
+            MixRepository(database),
+            catalog,
+            library,
+            LastfmSession(lastfm, client),
             refresh_interval=config.mix_refresh_hours * 3600,
             inactive_ttl=config.mix_inactive_days * 86400,
         )
         resources.push_async_callback(mixes.close)
-        playlists = Playlists(accounts, catalog, library, mixes, radio)
+        playlists = Playlists(
+            PlaylistRepository(database, library.repository),
+            catalog,
+            library,
+            mixes,
+            radio,
+        )
         if start_workers:
             await sync.start()
             await mixes.start()

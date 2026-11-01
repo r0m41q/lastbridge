@@ -64,9 +64,8 @@ class Library:
         self.wake.set()
         return True
 
-    def schedule(self, connection):
-        # R2 bridge for playlist/sync transactions.
-        self.repository.schedule(connection)
+    def notify(self):
+        self.wake.set()
 
     async def reconcile(self, startup=False):
         await self.audio.update_pins(self.pins())

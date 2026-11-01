@@ -1,4 +1,4 @@
-"""Enforce dependency direction for the R1 packages during the migration."""
+"""Enforce dependency direction across migrated features."""
 
 import ast
 import importlib.util
@@ -9,7 +9,17 @@ from pathlib import Path
 import pytest
 
 SOURCE = Path(__file__).resolve().parents[2] / "src" / "lastbridge"
-FEATURES = ("accounts", "catalog", "library", "playback")
+FEATURES = (
+    "accounts",
+    "catalog",
+    "library",
+    "playback",
+    "playlists",
+    "discovery",
+    "radio",
+    "lastfm_sync",
+    "lyrics",
+)
 
 
 def imports(module, tree):
@@ -85,6 +95,11 @@ def test_feature_dependency_direction(feature):
     "layer,source",
     [
         ("domain", "from fastapi import Request"),
+        ("domain", "from lastbridge.providers.lastfm.client import Lastfm"),
+        (
+            "application",
+            "from lastbridge.features.playlists.application import service",
+        ),
         ("application", "from ..adapters.sqlite import repository"),
         ("application", "from lastbridge.accounts import Accounts"),
         (

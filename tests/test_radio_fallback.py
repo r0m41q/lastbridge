@@ -7,7 +7,8 @@ from support.catalog import SONG, body, get, search
 from support.radio import request, selected, track
 from support.sync import rows, run, uid
 
-import lastbridge.radio as radio_module
+import lastbridge.features.radio.application.fallback as fallback_module
+import lastbridge.features.radio.application.service as radio_module
 from lastbridge.catalog import CatalogError
 from lastbridge.lastfm import Lastfm, LastfmRequestError
 
@@ -19,8 +20,8 @@ def fallback_service(radio_service, monkeypatch):
     service, _ = radio_service
     app = service[1]
     radio = app.state.radio
-    radio.lastfm = app.state.lastfm
-    radio.client = app.state.http_client
+    radio.remote.lastfm = app.state.lastfm
+    radio.remote.client = app.state.http_client
     calls = []
     original = app.state.catalog.provider.fetch
 
@@ -129,7 +130,7 @@ def test_unavailable_lastfm_retains_same_seed_snapshot(
 
     monkeypatch.setattr(app.state.lastfm, "taste_rows", failed)
     if not configured:
-        app.state.radio.lastfm = None
+        app.state.radio.remote.lastfm = None
     assert selected(request(service)) == songs
     other = app.state.catalog.song(track(9))
     assert (
@@ -169,7 +170,7 @@ def test_fallback_lookup_limit_and_partial_deadline(
         await asyncio.Event().wait()
 
     monkeypatch.setattr(app.state.catalog, "match_loved", slow_match)
-    monkeypatch.setattr(radio_module, "FALLBACK_DEADLINE", 0.3)
+    monkeypatch.setattr(fallback_module, "FALLBACK_DEADLINE", 0.3)
     assert selected(request(service)) == [song]
     assert len(matches) == 2
 
@@ -202,11 +203,11 @@ def test_fallback_uses_public_api_without_session(fallback_service):
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(handler)
         ) as client:
-            app.state.radio.lastfm = Lastfm("key", "secret")
-            app.state.radio.lastfm.taste_rows = ORIGINAL_TASTE.__get__(
-                app.state.radio.lastfm
+            app.state.radio.remote.lastfm = Lastfm("key", "secret")
+            app.state.radio.remote.lastfm.taste_rows = ORIGINAL_TASTE.__get__(
+                app.state.radio.remote.lastfm
             )
-            app.state.radio.client = client
+            app.state.radio.remote.client = client
             result = await app.state.radio.songs(
                 app.state.accounts.user("admin"), seed["id"], 50
             )

@@ -41,8 +41,9 @@ a continuous disk/third-party availability check.
 
 ## Code organization
 
-The project is moving to feature-first hexagonal packages. Accounts, catalog,
-library and playback currently use this layout under `src/lastbridge/features/`:
+The project uses feature-first hexagonal packages for accounts, catalog,
+library, playback, playlists, discovery, radio, Last.fm synchronization and
+lyrics under `src/lastbridge/features/`:
 
 ```text
 feature/
@@ -53,13 +54,23 @@ feature/
 
 `bootstrap.py` constructs dependencies and owns their startup/shutdown.
 `platform/` owns database connections, historical migrations and credential-key
-handling. `shared/` contains only common errors and recording normalization.
+handling. `shared/` contains neutral errors, dates and recording normalization.
+The shared Last.fm wire client lives under `providers/lastfm/`; features consume
+bound provider interfaces rather than HTTP clients.
 Application services receive interfaces rather than importing concrete adapters.
 Architecture tests enforce the migrated packages' dependency direction.
 
-The original account/catalog/audio/library modules temporarily preserve imports
-and constructor signatures for callers that have not migrated yet. The remaining
-features and browser/OpenSubsonic presentation move in subsequent reviewed changes.
+The original flat feature modules temporarily preserve imports and constructor
+signatures for callers that have not migrated yet. Runtime composition uses the
+new application services directly for the R2 features. Browser/OpenSubsonic
+presentation moves in the next reviewed iteration.
+
+Playlist persistence receives a transaction-scoped retention writer: playlist
+edits, retained-track changes and download-job intent commit or roll back together.
+Library reconciliation runs after that commit. Discovery separates generation,
+list composition and refresh scheduling; Last.fm synchronization separates
+scrobble delivery from loved-track imports; lyrics separates parsing, cache
+orchestration and the LRCLIB network adapter.
 The database remains schema 9; restructuring does not reset accounts or saved data.
 
 Shared test fixtures and fakes live in `tests/support/`, registered centrally by

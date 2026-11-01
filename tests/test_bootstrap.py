@@ -49,7 +49,7 @@ def test_partial_startup_closes_acquired_resources(
             raise RuntimeError("synthetic startup failure")
 
     async def start_mixes(mixes):
-        captured["client"] = mixes.client
+        captured["client"] = mixes.remote.client
         raise RuntimeError("synthetic startup failure")
 
     original_sync = bootstrap_module.LastfmSync.start

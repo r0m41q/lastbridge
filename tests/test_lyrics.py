@@ -9,8 +9,9 @@ import pytest
 from support.accounts import drop_playlist_tables
 from support.catalog import body, get, search
 
-import lastbridge.lyrics as lyrics_module
+import lastbridge.features.lyrics.application.service as lyrics_module
 from lastbridge.accounts import Accounts
+from lastbridge.features.lyrics.adapters.lrclib.provider import MAXIMUM
 from lastbridge.lyrics import Lyrics, retry_after, structured, timed_lines
 
 # Synthetic text: fractional precision, repeated stamps and blank cues.
@@ -49,7 +50,7 @@ def lyrics_service(catalog_service):
 
     async def install():
         upstream = httpx.AsyncClient(transport=httpx.MockTransport(respond))
-        service[1].state.lyrics.client = upstream
+        service[1].state.lyrics.provider.client = upstream
         return upstream
 
     client = service[0].portal.call(install)
@@ -230,7 +231,9 @@ def test_restart_cache_and_metadata_change_invalidate(lyrics_service):
     async def restart():
         old = app.state.lyrics
         await old.close()
-        app.state.lyrics = Lyrics(old.accounts, old.catalog, old.client)
+        app.state.lyrics = Lyrics(
+            app.state.accounts, old.catalog, old.provider.client
+        )
 
     service[0].portal.call(restart)
     assert entries(service, song) == original
@@ -256,14 +259,16 @@ def test_outage_stale_cache_and_rate_limit_cooldown(lyrics_service):
     expire(service)
     state.update(status=429, headers={"Retry-After": "120"})
     assert entries(service, song) == good
-    assert service[1].state.lyrics.blocked_until > time.monotonic() + 110
+    assert (
+        service[1].state.lyrics.provider.blocked_until > time.monotonic() + 110
+    )
     assert len(state["calls"]) == 2
     # Other songs also respect the provider-wide cooldown.
     row = service[1].state.catalog.read(song["id"])
     other = service[1].state.catalog.put("song", "othertrack1", song)
     assert entries(service, other) == []
     assert len(state["calls"]) == 2
-    service[1].state.lyrics.blocked_until = 0
+    service[1].state.lyrics.provider.blocked_until = 0
     expire(service, age=31 * 86400)
     state["status"] = 500
     assert entries(service, song) == []
@@ -294,7 +299,7 @@ def test_pending_tasks_and_persistent_cache_are_bounded(lyrics_service):
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(respond)
         ) as client:
-            lyrics.client = client
+            lyrics.provider.client = client
             songs = [
                 service[1].state.catalog.put("song", str(i), song)
                 for i in range(5)
@@ -342,7 +347,7 @@ def test_bad_provider_responses_are_cached_and_playback_unchanged(
 
 def test_oversize_provider_response_is_rejected(lyrics_service):
     service, song, state = lyrics_service
-    state["row"]["syncedLyrics"] = "x" * (lyrics_module.MAXIMUM + 1)
+    state["row"]["syncedLyrics"] = "x" * (MAXIMUM + 1)
     assert entries(service, song) == []
 
 
@@ -365,7 +370,7 @@ def test_shared_requests_cancellation_deadline_and_shutdown(
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(respond)
         ) as client:
-            lyrics.client = client
+            lyrics.provider.client = client
             first = asyncio.create_task(lyrics.get(song["id"]))
             await entered.wait()
             second = asyncio.create_task(lyrics.get(song["id"]))
@@ -378,7 +383,7 @@ def test_shared_requests_cancellation_deadline_and_shutdown(
             assert len(calls) == 1
             expire(service)
             release.clear()
-            lyrics.next_request = 0
+            lyrics.provider.next_request = 0
             monkeypatch.setattr(lyrics_module, "DEADLINE", 0.01)
             assert await lyrics.get(song["id"])
             expire(service)
@@ -421,3 +426,39 @@ def test_schema_six_upgrade_preserves_accounts_catalog_and_radio(
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
         assert connection.execute("SELECT * FROM radio").fetchone()["seed_id"]
         assert not connection.execute("SELECT * FROM lyrics").fetchall()
+
+
+@pytest.mark.parametrize("payload", [b"null", b"[]"])
+def test_malformed_response_keeps_stale_lyrics_with_short_retry(
+    lyrics_service, payload
+):
+    service, song, _ = lyrics_service
+    good = entries(service, song)
+    expire(service)
+    with service[1].state.accounts.connection() as connection:
+        updated = connection.execute(
+            "SELECT updated FROM lyrics WHERE song_id=?", (song["id"],)
+        ).fetchone()[0]
+
+    async def fetch():
+        lyrics = service[1].state.lyrics
+        previous = lyrics.provider.client
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(200, content=payload)
+            )
+        ) as client:
+            lyrics.provider.client = client
+            try:
+                return await lyrics.get(song["id"])
+            finally:
+                lyrics.provider.client = previous
+
+    assert service[0].portal.call(fetch) == good
+    with service[1].state.accounts.connection() as connection:
+        row = connection.execute(
+            "SELECT updated,expires FROM lyrics WHERE song_id=?",
+            (song["id"],),
+        ).fetchone()
+    assert row["updated"] == updated
+    assert time.time() < row["expires"] <= time.time() + 60

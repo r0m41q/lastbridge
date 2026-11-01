@@ -15,7 +15,7 @@ from support.radio import (
 )
 from support.sync import rows, run, uid
 
-import lastbridge.radio as radio_module
+import lastbridge.features.radio.application.service as radio_module
 from lastbridge.accounts import Accounts
 from lastbridge.catalog import CatalogError
 from lastbridge.providers.catalog_worker import execute
@@ -388,7 +388,7 @@ def test_listening_session_seek_save_replay_and_scrobble(radio_service):
                 )
             )
         ) as upstream:
-            app.state.lyrics.client = upstream
+            app.state.lyrics.provider.client = upstream
             result = await app.state.lyrics.get(next_song["id"])
             assert result[0]["synced"] is True
             assert result[0]["line"][0]["start"] == 1250
@@ -418,7 +418,7 @@ def test_listening_session_seek_save_replay_and_scrobble(radio_service):
                 )
             )
         ) as upstream:
-            app.state.sync.client = upstream
+            app.state.sync.remote.client = upstream
             assert await app.state.sync.deliver_one()
 
     run(service, deliver)

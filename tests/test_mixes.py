@@ -15,7 +15,8 @@ from support.mixes import (
 )
 from support.sync import rows, run, uid
 
-import lastbridge.mixes as mix_module
+import lastbridge.features.discovery.application.builder as mix_builder
+import lastbridge.features.discovery.application.service as mix_module
 from lastbridge.accounts import Accounts
 from lastbridge.catalog import CatalogError
 from lastbridge.lastfm import Lastfm, LastfmRequestError
@@ -458,7 +459,7 @@ def test_refresh_lookup_budget_track_caps_and_reuse(mix_service, monkeypatch):
     monkeypatch.setattr(app.state.lastfm, "taste_rows", taste)
     monkeypatch.setattr(app.state.catalog, "match_loved", match)
     # Lower the budget to prove a hard bound without slowing the test.
-    monkeypatch.setattr(mix_module, "LOOKUPS", 4)
+    monkeypatch.setattr(mix_builder, "LOOKUPS", 4)
     refresh(service)
     assert len(lookups) == len(tracks(service, "Comfort")) == 4
     with app.state.accounts.transaction() as connection:
