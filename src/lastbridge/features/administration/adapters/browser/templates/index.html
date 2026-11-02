@@ -1,0 +1,98 @@
+{% extends 'base.html' %}
+{% from 'components/display.html' import heading %}
+{% from 'components/forms.html' import csrf, action %}
+{% macro size(value) -%}
+  {% if value >= 1073741824 %}{{ '%.2f'|format(value / 1073741824) }} GiB{% elif value >= 1048576 %}{{ '%.1f'|format(value / 1048576) }} MiB{% elif value >= 1024 %}{{ '%.1f'|format(value / 1024) }} KiB{% else %}{{ value }} B{% endif %}
+{%- endmacro %}
+{% block content %}
+<div class="dashboard">
+  <section aria-labelledby="storage-heading">
+    <h2 id="storage-heading">Storage</h2>
+    {% if storage.low_space %}<p class="notice" role="status">Low disk space. New downloads may fail.</p>{% endif %}
+    <div class="stats">
+      <div class="stat"><p class="eyebrow">Saved audio</p><strong>{{ size(storage.saved_bytes) }}</strong></div>
+      <div class="stat"><p class="eyebrow">Temporary cache</p><strong>{{ size(storage.cache_bytes) }}</strong></div>
+      <div class="stat"><p class="eyebrow">Disk free</p><strong>{{ size(storage.disk_free) }}</strong></div>
+    </div>
+    <div class="panel">
+      <dl class="storage-details">
+        <div><dt>Shared saved audio</dt><dd>{{ size(storage.shared_bytes) }}</dd></div>
+        <div><dt>Cache limit</dt><dd>{{ size(storage.budget) }}</dd></div>
+        <div><dt>Active transfers</dt><dd>{{ storage.active }}</dd></div>
+        <div><dt>Reserved for transfers</dt><dd>{{ size(storage.reserved) }}</dd></div>
+        <div><dt>Filesystem used / total</dt><dd>{{ size(storage.disk_used) }} / {{ size(storage.disk_total) }}</dd></div>
+      </dl>
+      <p>Saved audio counts each file once. Shared audio is included in that total. Filesystem usage includes other files on the disk; transfer reservations are capacity, not downloaded bytes.</p>
+    </div>
+  </section>
+  <section aria-labelledby="users-heading">
+    <h2 id="users-heading">Users</h2>
+    <p>Saved size includes downloaded likes and kept playlists. Shared files appear in each owner's size; exclusive size counts files retained by one user.</p>
+    <div class="table-scroll"><table>
+      <thead><tr><th scope="col">User</th><th scope="col">Last.fm</th><th scope="col">Downloaded / retained</th><th scope="col">Saved size</th><th scope="col">Exclusive size</th><th scope="col">Downloads</th></tr></thead>
+      <tbody>{% for account in users %}
+        <tr><th scope="row"><a href="#user-{{ account.id }}">{{ account.username }}</a>{% if account.admin %} · Admin{% endif %}</th><td>{{ account.lastfm_name or '—' }} · {{ account.link_status }}</td><td>{{ account.downloaded }} / {{ account.retained }}</td><td>{{ size(account.logical_bytes) }}</td><td>{{ size(account.exclusive_bytes) }}</td><td>{% for state, count in account.downloads.items() %}{{ count }} {{ state }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+    {% for account in users %}
+      <details class="panel" id="user-{{ account.id }}">
+        <summary>{{ account.username }} · Jobs and account</summary>
+        <h3>Downloads</h3>
+        {{ action('/admin/users/' ~ account.id ~ '/downloads', user.csrf, 'Retry downloads') }}
+        <h3>Personal mixes</h3>
+        {% if account.mix %}<p>{{ 'Running' if account.mix.running else 'Refresh failed' if account.mix.error else 'Ready' if account.mix.updated else 'Waiting for first refresh' }}</p>{% else %}<p>No mixes yet.</p>{% endif %}
+        {% if account.link_status == 'linked' %}{{ action('/admin/users/' ~ account.id ~ '/mixes', user.csrf, 'Queue mix refresh') }}{% endif %}
+        <h3>Last.fm loved tracks</h3>
+        {% if account.import %}
+          <p>{{ account.import.state }} · {{ account.import.fetched }} fetched · page {{ account.import.next_page }}{% if account.import.total_pages %} of {{ account.import.total_pages }}{% endif %}{% if account.import.error %} · Import needs attention{% endif %}</p>
+          <div class="actions">
+            {% if account.import.state == 'active' %}{{ action('/admin/users/' ~ account.id ~ '/pause', user.csrf, 'Pause import') }}{% endif %}
+            {% if account.link_status == 'linked' %}
+              {{ action('/admin/users/' ~ account.id ~ '/resume', user.csrf, 'Resume import') }}
+              {{ action('/admin/users/' ~ account.id ~ '/retry-matches', user.csrf, 'Retry unmatched tracks') }}
+            {% endif %}
+          </div>
+        {% else %}<p>No import yet.</p>{% endif %}
+        <h3>Scrobbles</h3>
+        <p>{% for state, count in account.scrobbles.items() %}{{ count }} {{ state }}{% if not loop.last %}, {% endif %}{% else %}No scrobbles.{% endfor %}</p>
+        {% if account.link_status == 'linked' %}{{ action('/admin/users/' ~ account.id ~ '/retry-scrobbles', user.csrf, 'Retry failed scrobbles') }}{% endif %}
+        <details>
+          <summary>Reset browser password</summary>
+          <p>This signs the user out and invalidates their music-client password. Their library and Last.fm link are kept.</p>
+          <form method="post" action="/admin/users/{{ account.id }}/password">
+            {{ csrf(user.csrf) }}
+            <label>New browser password<input name="password" type="password" required minlength="8" maxlength="256" autocomplete="new-password"></label>
+            <label><input name="confirm" type="checkbox" value="yes" required> Reset password for {{ account.username }} and disconnect their sessions</label>
+            <button type="submit">Reset password</button>
+          </form>
+        </details>
+      </details>
+    {% endfor %}
+  </section>
+  <section class="panel admin-panel">
+    {{ heading('Create user') }}
+    <form method="post" action="/admin/users">
+      {{ csrf(user.csrf) }}
+      <label>Username<input name="username" required maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+      <label>Initial browser password<input name="password" type="password" required minlength="8" maxlength="256" autocomplete="new-password"></label>
+      <button type="submit">Create user</button>
+    </form>
+  </section>
+  <section class="panel">
+    {{ heading('Download queue') }}
+    <p>{% for state, count in job_counts.items() %}{{ count }} {{ state }}{% if not loop.last %}, {% endif %}{% else %}No jobs.{% endfor %} · Shared recordings count once.</p>
+    {% if jobs %}<p>Up to 100 failed recordings. Retry through an owner's controls above.</p>
+      <div class="table-scroll"><table><thead><tr><th scope="col">Recording</th><th scope="col">Attempts</th><th scope="col">Owners</th></tr></thead><tbody>
+      {% for job in jobs %}<tr><td>{{ job.title or job.source }}</td><td>{{ job.attempts }}</td><td>{{ job.owners }}</td></tr>{% endfor %}
+      </tbody></table></div>
+    {% endif %}
+  </section>
+  <section class="panel">
+    {{ heading('Shared YouTube charts') }}
+    {% for chart in charts %}<div class="playlist-row">
+      <div class="playlist-info"><h3><a href="/playlist-imports/{{ chart.id }}">{{ chart.title }}</a></h3><p>{{ 'Refreshing' if chart.running else 'Refresh failed; previous snapshot kept' if chart.error else 'Scheduled' }}</p></div>
+      {% if chart.error and not chart.running %}<div class="actions">{{ action('/admin/charts/' ~ chart.id ~ '/retry', user.csrf, 'Retry refresh') }}</div>{% endif %}
+    </div>{% else %}<p>No shared charts.</p>{% endfor %}
+  </section>
+</div>
+{% endblock %}

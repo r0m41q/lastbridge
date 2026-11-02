@@ -15,6 +15,7 @@ from jinja2 import (
 
 FEATURES = (
     "accounts",
+    "administration",
     "library",
     "lastfm_sync",
     "discovery",
@@ -63,6 +64,8 @@ def document(template: str, page: Page, *, user=None, **context) -> str:
         if user is not None and user["link_status"] in ("linked", "relink")
         else NAV[:1]
     )
+    if user is not None and user["admin"]:
+        navigation = (*navigation, ("/admin", "Administration", "key"))
     return environment.get_template(template).render(
         page=page, user=user, navigation=navigation, **context
     )

@@ -280,7 +280,7 @@
 }
 @layer components {
   .table-scroll { overflow-x: auto; max-width: 100%; margin-block: 22px; }
-  .table-scroll table { display: table; width: 100%; margin: 0; }
+  .table-scroll table { display: table; width: 100%; margin: 0; border-collapse: collapse; font-size: 12px; }
   [id] { scroll-margin-top: 140px; }
 }
 @layer responsive {
@@ -294,4 +294,21 @@
 }
 @layer responsive {
   @media (max-width: 640px) { .sidebar nav { margin-top: 0; } }
+}
+
+@layer components {
+  .storage-details { display: grid; gap: 12px; margin-block: 18px; }
+  .storage-details > div { display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+  .storage-details dt { color: var(--muted); }
+  .storage-details dd { margin: 0; font-variant-numeric: tabular-nums; }
+  details.panel { margin-block: 12px; }
+  details.panel h3 { margin-top: 24px; }
+  details.panel > details { margin-top: 24px; }
+}
+
+@layer components {
+  input[type=checkbox] { display: inline-block; width: 20px; min-height: 20px; margin: 0 8px 0 0; padding: 0; vertical-align: middle; accent-color: var(--accent); }
+}
+@layer components {
+  .dashboard > section { min-width: 0; }
 }

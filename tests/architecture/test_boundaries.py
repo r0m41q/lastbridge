@@ -11,6 +11,7 @@ import pytest
 SOURCE = Path(__file__).resolve().parents[2] / "src" / "lastbridge"
 FEATURES = (
     "accounts",
+    "administration",
     "catalog",
     "library",
     "playback",

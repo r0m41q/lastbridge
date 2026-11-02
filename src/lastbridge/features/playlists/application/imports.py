@@ -70,6 +70,9 @@ class Imports:
             snapshot = await self.provider.load(source)
         return self.repository.draft(user, source, shared, snapshot)
 
+    def retry_shared(self, item_id):
+        self.repository.retry_shared(item_id)
+
     def confirm(self, user, item_id):
         return self.repository.confirm(user, item_id)
 

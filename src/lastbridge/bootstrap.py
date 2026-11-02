@@ -14,6 +14,15 @@ from lastbridge.features.accounts.adapters.sqlite.repository import (
     AccountRepository,
 )
 from lastbridge.features.accounts.application.service import Accounts
+from lastbridge.features.administration.adapters.filesystem.usage import (
+    StorageUsage,
+)
+from lastbridge.features.administration.adapters.sqlite.repository import (
+    DashboardRepository,
+)
+from lastbridge.features.administration.application.service import (
+    Administration,
+)
 from lastbridge.features.catalog.adapters.http.artwork import ArtworkLookup
 from lastbridge.features.catalog.adapters.sqlite.repository import (
     CatalogRepository,
@@ -100,6 +109,7 @@ class Services:
     radio: Radio
     playlists: Playlists
     password_limit: asyncio.Semaphore
+    administration: Administration
 
 
 def account_storage(
@@ -262,4 +272,12 @@ async def bootstrap(
             radio=radio,
             playlists=playlists,
             password_limit=asyncio.Semaphore(2),
+            administration=Administration(
+                DashboardRepository(database, config.audio_policy),
+                StorageUsage(storage),
+                downloads=library.retry,
+                mixes=mixes.request,
+                sync=sync.control,
+                charts=imports.retry_shared,
+            ),
         )

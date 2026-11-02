@@ -6,6 +6,9 @@ from fastapi.responses import FileResponse
 from lastbridge.features.accounts.adapters.browser.routes import (
     router as accounts_router,
 )
+from lastbridge.features.administration.adapters.browser.routes import (
+    router as administration_router,
+)
 from lastbridge.features.discovery.adapters.browser.routes import (
     router as discovery_router,
 )
@@ -23,6 +26,7 @@ from lastbridge.features.radio.adapters.browser.routes import (
 )
 
 router = APIRouter()
+router.include_router(administration_router)
 router.include_router(accounts_router)
 router.include_router(library_router)
 router.include_router(lastfm_sync_router)

@@ -51,6 +51,8 @@ docker compose exec lastbridge /app/venv/bin/python -m lastbridge.manage reset-p
 ```
 
 Resetting also revokes that user's browser sessions and client password.
+Administrators can also reset passwords from **Administration**, which shows
+users, saved storage, cache and disk usage, and job progress with retry controls.
 
 ## Configuration and updates
 

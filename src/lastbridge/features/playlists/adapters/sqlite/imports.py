@@ -159,6 +159,15 @@ class ImportRepository:
                 "DELETE FROM playlist_imports WHERE id=?", (item_id,)
             )
 
+    def retry_shared(self, item_id):
+        with self.database.transaction() as connection:
+            connection.execute(
+                "UPDATE playlist_imports SET next_attempt=0 "
+                "WHERE id=? AND shared=1 AND ready=1 AND token IS NULL "
+                "AND error IS NOT NULL",
+                (item_id,),
+            )
+
     def recover(self):
         with self.database.transaction() as connection:
             connection.execute(
