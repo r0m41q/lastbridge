@@ -1,9 +1,11 @@
 import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
+from math import isfinite
 from typing import Literal
 from urllib.parse import urlsplit
 
+MEGABYTE = 1024 * 1024
 MIN_CACHE_BYTES = 2_097_152
 MIN_FILE_BYTES = 1_048_576
 MAX_TIMEOUT_SECONDS = 600
@@ -12,7 +14,11 @@ MIN_TIMEOUT_SECONDS = 5
 
 @dataclass(frozen=True)
 class AudioSettings:
+    # ``provider`` remains a compatibility alias for callers that used the
+    # original single-provider setting. New settings use the explicit roles.
     provider: Literal["youtube", "jumo"] = "youtube"
+    stream_provider: Literal["youtube", "jumo"] | None = None
+    download_provider: Literal["youtube", "jumo"] | None = None
     policy: Literal["aac", "opus"] = "aac"
     cache_bytes: int = 1_000_000_000
     file_max_bytes: int = 67_108_864
@@ -26,6 +32,15 @@ class AudioSettings:
     def __post_init__(self):
         if self.provider not in ("youtube", "jumo"):
             raise ValueError("Select a supported audio provider.")
+        stream_provider = self.stream_provider or self.provider
+        download_provider = self.download_provider or self.provider
+        if stream_provider not in ("youtube", "jumo"):
+            raise ValueError("Select a supported audio provider.")
+        if download_provider not in ("youtube", "jumo"):
+            raise ValueError("Select a supported audio provider.")
+        object.__setattr__(self, "provider", stream_provider)
+        object.__setattr__(self, "stream_provider", stream_provider)
+        object.__setattr__(self, "download_provider", download_provider)
         if self.policy not in ("aac", "opus"):
             raise ValueError("Select a supported audio format.")
         if self.cache_bytes < MIN_CACHE_BYTES:
@@ -62,8 +77,10 @@ class AudioSettings:
         if self.jumo_quality not in ("original", "cd"):
             raise ValueError("Select a supported Jumo quality.")
 
-    def as_dict(self) -> dict[str, str | int]:
-        return asdict(self)
+    def as_dict(self) -> dict[str, str | int | bool]:
+        values = asdict(self)
+        values.pop("provider", None)
+        return values
 
     @classmethod
     def from_form(
@@ -71,6 +88,28 @@ class AudioSettings:
         values: Mapping[str, str],
         ceilings: tuple[int, int, int] | None = None,
     ) -> AudioSettings:
+        def size(name: str, legacy_name: str) -> int:
+            raw = values.get(name)
+            if raw in (None, ""):
+                # Accept the old byte-based field names for API clients and
+                # older form submissions while the browser uses megabytes.
+                raw = values.get(legacy_name, "")
+                try:
+                    return int(raw)
+                except TypeError, ValueError:
+                    raise ValueError(
+                        "Audio size settings must use numbers."
+                    ) from None
+            try:
+                parsed = float(raw)
+            except TypeError, ValueError:
+                raise ValueError(
+                    "Audio size settings must use numbers."
+                ) from None
+            if not isfinite(parsed):
+                raise ValueError("Audio size settings must use numbers.")
+            return round(parsed * MEGABYTE)
+
         def number(name: str) -> int:
             raw = values.get(name, "")
             try:
@@ -81,11 +120,17 @@ class AudioSettings:
                 ) from None
 
         settings = cls(
-            provider=values.get("provider", ""),
+            provider=values.get("provider", "") or "youtube",
+            stream_provider=values.get(
+                "stream_provider", values.get("provider", "")
+            ),
+            download_provider=values.get(
+                "download_provider", values.get("provider", "")
+            ),
             policy=values.get("policy", ""),
-            cache_bytes=number("cache_bytes"),
-            file_max_bytes=number("file_max_bytes"),
-            free_reserve_bytes=number("free_reserve_bytes"),
+            cache_bytes=size("cache_mb", "cache_bytes"),
+            file_max_bytes=size("file_max_mb", "file_max_bytes"),
+            free_reserve_bytes=size("free_reserve_mb", "free_reserve_bytes"),
             timeout_seconds=number("timeout_seconds"),
             youtube_fallback=values.get("youtube_fallback") == "yes",
             jumo_base_url=values.get("jumo_base_url", ""),
@@ -111,6 +156,8 @@ class AudioSettings:
         reserve = min(self.free_reserve_bytes, ceilings[2])
         return AudioSettings(
             provider=self.provider,
+            stream_provider=self.stream_provider,
+            download_provider=self.download_provider,
             policy=self.policy,
             cache_bytes=cache,
             file_max_bytes=maximum,

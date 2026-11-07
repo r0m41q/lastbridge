@@ -24,6 +24,8 @@ class AudioProvider(Protocol):
 
 class AudioConfiguration(Protocol):
     provider: str
+    stream_provider: str
+    download_provider: str
     policy: str
     cache_bytes: int
     file_max_bytes: int

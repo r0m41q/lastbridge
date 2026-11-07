@@ -1,11 +1,14 @@
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import signal
 import sys
 
 from lastbridge.shared.errors import CatalogError
+
+logger = logging.getLogger(__name__)
 
 
 class AudioProvider:
@@ -47,9 +50,27 @@ class AudioProvider:
                 return json.loads(output)
 
             result = await asyncio.wait_for(exchange(), self.timeout)
-            if process.returncode or not isinstance(result, dict):
+            if process.returncode:
+                logger.warning(
+                    "YouTube audio worker exited source=%s exit_code=%s",
+                    source,
+                    process.returncode,
+                )
+                raise CatalogError(0, "Audio provider unavailable; retry")
+            if not isinstance(result, dict):
+                logger.warning(
+                    "YouTube audio worker returned an invalid response "
+                    "source=%s",
+                    source,
+                )
                 raise CatalogError(0, "Audio provider unavailable; retry")
             if result.get("error"):
+                logger.warning(
+                    "YouTube audio worker reported failure source=%s "
+                    "reason=%s",
+                    source,
+                    result["error"],
+                )
                 messages = {
                     "access_denied": "Audio provider denied access; try later",
                     "unavailable": "Recording unavailable from audio provider",
@@ -65,10 +86,16 @@ class AudioProvider:
                 )
             return result
         except TimeoutError:
+            logger.warning("YouTube audio worker timed out source=%s", source)
             raise CatalogError(
                 0, "Audio acquisition timed out; retry"
             ) from None
-        except ValueError, TypeError, OSError:
+        except (ValueError, TypeError, OSError) as error:
+            logger.warning(
+                "YouTube audio worker failed source=%s error_type=%s",
+                source,
+                type(error).__name__,
+            )
             raise CatalogError(
                 0, "Audio provider unavailable; retry"
             ) from None

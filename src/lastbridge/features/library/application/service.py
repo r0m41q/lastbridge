@@ -99,7 +99,7 @@ class Library:
             return False
         key = None
         try:
-            key, _ = await self.audio.acquire(job["source"])
+            key, _ = await self.audio.acquire(job["source"], role="download")
             saved = await self.audio.retain(key)
             if saved:
                 self.repository.complete(job["source"])

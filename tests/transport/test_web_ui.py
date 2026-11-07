@@ -61,6 +61,7 @@ def test_navigation_is_authenticated_and_admin_form_is_role_scoped(
     response = client.get("/")
     assert "Main navigation" in response.text
     assert "Skip to content" in response.text
+    assert 'action="/logout"' in response.text
     assert 'minlength="8"' in response.text
     assert "Create user" in response.text
     login(client, "alice")

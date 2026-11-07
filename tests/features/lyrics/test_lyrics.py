@@ -437,7 +437,7 @@ def test_schema_six_upgrade_preserves_accounts_catalog_and_radio(
         service[1].state.services.catalog.read(song["id"])["document"] == song
     )
     with migrated.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
         assert connection.execute("SELECT * FROM radio").fetchone()["seed_id"]
         assert not connection.execute("SELECT * FROM lyrics").fetchall()
 

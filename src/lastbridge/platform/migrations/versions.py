@@ -45,7 +45,7 @@ SCHEMA = (
 def migrate(database, credentials):
     with database.transaction() as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 13:
+        if version > 14:
             raise RuntimeError("Database is newer than this application")
         if version == 0:
             for statement in SCHEMA:
@@ -128,7 +128,7 @@ def migrate(database, credentials):
             connection.execute(AUDIO_SCHEMA)
             connection.execute(
                 "INSERT OR IGNORE INTO audio_settings "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 AUDIO_DEFAULTS,
             )
             connection.execute("PRAGMA user_version=12")
@@ -146,13 +146,41 @@ def migrate(database, credentials):
                 connection.execute(AUDIO_SCHEMA)
                 connection.execute(
                     "INSERT INTO audio_settings "
-                    "SELECT id,provider,policy,cache_bytes,file_max_bytes,"
-                    "free_reserve_bytes,timeout_seconds,1,"
+                    "(id,provider,stream_provider,download_provider,policy,"
+                    "cache_bytes,file_max_bytes,free_reserve_bytes,"
+                    "timeout_seconds,youtube_fallback,jumo_base_url,"
+                    "jumo_region,jumo_quality) "
+                    "SELECT id,provider,provider,provider,policy,"
+                    "cache_bytes,file_max_bytes,free_reserve_bytes,"
+                    "timeout_seconds,1,"
                     "'https://jumo-dl.pages.dev','','original' "
                     "FROM audio_settings_old"
                 )
                 connection.execute("DROP TABLE audio_settings_old")
             connection.execute("PRAGMA user_version=13")
+        if version < 14:
+            columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(audio_settings)"
+                )
+            }
+            if "stream_provider" not in columns:
+                connection.execute(
+                    "ALTER TABLE audio_settings ADD COLUMN "
+                    "stream_provider TEXT NOT NULL DEFAULT 'youtube' "
+                    "CHECK(stream_provider IN ('youtube','jumo'))"
+                )
+                connection.execute(
+                    "ALTER TABLE audio_settings ADD COLUMN "
+                    "download_provider TEXT NOT NULL DEFAULT 'youtube' "
+                    "CHECK(download_provider IN ('youtube','jumo'))"
+                )
+                connection.execute(
+                    "UPDATE audio_settings SET stream_provider=provider,"
+                    "download_provider=provider"
+                )
+            connection.execute("PRAGMA user_version=14")
         check = connection.execute(
             "SELECT value FROM credential_check"
         ).fetchone()[0]

@@ -61,22 +61,25 @@ users, saved storage, cache and disk usage, and job progress with retry controls
 
 See [.env.example](.env.example) for deployment settings. The audio size
 environment variables are absolute ceilings; the Administrator chooses equal or
-lower runtime values from **Administration**. Provider, format, timeout, cache,
-file-size, free-space, Jumo URL, region, and quality settings are stored in the
-Lastbridge database. YouTube Music remains the default provider and Jumo-DL can
-use it as a fallback. Defaults include a shared 1 GB playback cache, AAC audio,
-and personal mix refreshes 24 hours after the last successful refresh.
+lower runtime values from **Administration**. Streaming provider, downloading
+provider, format, timeout, cache, file-size, free-space, Jumo URL, region, and
+quality settings are stored in the Lastbridge database. YouTube Music is the
+default for both roles and Jumo-DL can use it as a fallback. Defaults include a
+shared 1 GB playback cache, AAC audio, and personal mix refreshes 24 hours
+after the last successful refresh.
 
 Favorites and playlists marked **Keep downloaded** retain audio outside the cache
 limit. Ordinary playlists store metadata only. Linking Last.fm automatically
 imports matched loved tracks as favorites and queues their downloads; manage the
 import from **Last.fm sync** in the web UI.
 
-Import a public YouTube playlist from **Playlists** in the browser. Preview shows
-unavailable or unmatched tracks before saving. Imports are read-only, metadata-only
-snapshots; copy one to edit or keep it downloaded. Administrators can share charts
-with everyone: each source refreshes once every 24 hours after its last successful
-refresh, including while users are inactive. Private imports refresh on request.
+Import a public YouTube playlist from **Playlists** in the browser. To add a
+shared chart, choose **Everyone** in the visibility field, preview it, and
+confirm **Add shared chart**. Preview shows unavailable or unmatched tracks
+before saving. Imports are read-only, metadata-only snapshots; copy one to edit
+or keep it downloaded. Shared charts refresh once every 24 hours after their
+last successful refresh, including while users are inactive. Private imports
+refresh on request.
 Up to 1,000 entries and 50 exact-audio fallback searches per import are supported.
 Private YouTube accounts and Spotify/Apple Music integrations are not supported.
 

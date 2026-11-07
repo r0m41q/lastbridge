@@ -1,5 +1,6 @@
 {% from 'components/icons.html' import icon %}
 {% from 'components/display.html' import brand %}
+{% from 'components/forms.html' import csrf %}
 <!doctype html>
 <html lang="en">
   <head>
@@ -27,14 +28,20 @@
             </a>
           {% endfor %}
         </nav>
-        <div class="identity">
-          <span class="avatar">
-            {{ user.username[:1].upper() }}
-          </span>
-          <div>
-            <strong>{{ user.username }}</strong>
-            <small>{{ 'Administrator' if user.admin else 'Listener' }}</small>
+        <div class="sidebar-footer">
+          <div class="identity">
+            <span class="avatar">
+              {{ user.username[:1].upper() }}
+            </span>
+            <div>
+              <strong>{{ user.username }}</strong>
+              <small>{{ 'Administrator' if user.admin else 'Listener' }}</small>
+            </div>
           </div>
+          <form class="sidebar-signout" method="post" action="/logout">
+            {{ csrf(user.get('csrf', '')) }}
+            <button type="submit">Sign out</button>
+          </form>
         </div>
       </aside>
     {% else %}

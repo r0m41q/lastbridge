@@ -110,7 +110,8 @@ class AudioSettingsRepository:
     def snapshot(self) -> AudioSettings:
         with self.database.connection() as connection:
             row = connection.execute(
-                "SELECT provider,policy,cache_bytes,file_max_bytes,"
+                "SELECT provider,stream_provider,download_provider,"
+                "policy,cache_bytes,file_max_bytes,"
                 "free_reserve_bytes,timeout_seconds,youtube_fallback,"
                 "jumo_base_url,jumo_region,jumo_quality FROM audio_settings "
                 "WHERE id=1"
@@ -119,17 +120,23 @@ class AudioSettingsRepository:
             raise RuntimeError("Audio settings are missing")
         values = dict(row)
         values["youtube_fallback"] = bool(values["youtube_fallback"])
+        # The legacy provider column is retained for old databases and older
+        # tooling; the role-specific columns are the source of truth.
+        values.pop("provider", None)
         return AudioSettings(**values)
 
     def save(self, settings: AudioSettings) -> None:
         with self.database.transaction() as connection:
             connection.execute(
-                "UPDATE audio_settings SET provider=?,policy=?,"
-                "cache_bytes=?,file_max_bytes=?,free_reserve_bytes=?,"
+                "UPDATE audio_settings SET provider=?,stream_provider=?,"
+                "download_provider=?,policy=?,cache_bytes=?,"
+                "file_max_bytes=?,free_reserve_bytes=?,"
                 "timeout_seconds=?,youtube_fallback=?,jumo_base_url=?,"
                 "jumo_region=?,jumo_quality=? WHERE id=1",
                 (
                     settings.provider,
+                    settings.stream_provider,
+                    settings.download_provider,
                     settings.policy,
                     settings.cache_bytes,
                     settings.file_max_bytes,

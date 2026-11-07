@@ -9,7 +9,7 @@
       {% if item.error %}<p role="status">{{ item.error }}</p>{% endif %}
       <div class="actions">
         {% if not item.ready %}
-          {{ action('/playlist-imports/' ~ item.id ~ '/confirm', user.csrf, 'Import playlist') }}
+          {{ action('/playlist-imports/' ~ item.id ~ '/confirm', user.csrf, 'Add shared chart' if item.shared else 'Import playlist') }}
           {{ action('/playlist-imports/' ~ item.id ~ '/delete', user.csrf, 'Discard preview') }}
         {% elif not item.shared or user.admin %}
           {{ action('/playlist-imports/' ~ item.id ~ '/refresh', user.csrf, 'Refresh') }}

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +17,9 @@ from support.audio import (
 from support.catalog import body, get, search
 
 from lastbridge.features.administration.domain.audio import AudioSettings
+from lastbridge.features.playback.adapters.provider import (
+    AudioProvider as AudioProviderRouter,
+)
 from lastbridge.features.playback.adapters.youtube.provider import (
     AudioProvider,
 )
@@ -409,6 +413,72 @@ def test_audio_cache_applies_administrator_settings(tmp_path):
         await audio.close()
 
     asyncio.run(scenario())
+
+
+def test_audio_provider_router_selects_stream_and_download_roles(
+    tmp_path, caplog
+):
+    caplog.set_level(logging.INFO)
+
+    class Provider:
+        def __init__(self, name):
+            self.name, self.calls = name, []
+
+        async def configure(self, settings):
+            pass
+
+        async def fetch(self, source, policy, directory, maximum, reserve):
+            self.calls.append(source)
+            (directory / "audio.m4a").write_bytes(AUDIO)
+            return {"policy": policy}
+
+    async def scenario():
+        youtube = Provider("youtube")
+        jumo = Provider("jumo")
+        router = AudioProviderRouter(
+            youtube,
+            jumo,
+            AudioSettings(
+                stream_provider="jumo",
+                download_provider="youtube",
+                youtube_fallback=False,
+            ),
+        )
+        await router.fetch_for("stream", SOURCE, "aac", tmp_path, 8192, 0)
+        await router.fetch_for("download", OTHER, "aac", tmp_path, 8192, 0)
+        assert jumo.calls == [SOURCE]
+        assert youtube.calls == [OTHER]
+
+    asyncio.run(scenario())
+    assert "Audio provider request started" in caplog.text
+
+
+def test_audio_provider_failure_is_logged_with_provider_and_role(
+    tmp_path, caplog
+):
+    class Failing:
+        async def fetch(self, *args):
+            raise CatalogError(0, "Recording unavailable from audio provider")
+
+    async def scenario():
+        router = AudioProviderRouter(
+            Failing(),
+            Failing(),
+            AudioSettings(
+                stream_provider="youtube",
+                download_provider="jumo",
+                youtube_fallback=False,
+            ),
+        )
+        with pytest.raises(CatalogError):
+            await router.fetch_for(
+                "download", SOURCE, "aac", tmp_path, 8192, 0
+            )
+
+    asyncio.run(scenario())
+    assert "provider=jumo" in caplog.text
+    assert "role=download" in caplog.text
+    assert "Recording unavailable from audio provider" in caplog.text
 
 
 def test_worker_full_track_download_and_validation(tmp_path, monkeypatch):

@@ -5,12 +5,13 @@
 {% block content %}
   <div class="dashboard">
     <section class="panel">
-      <h2>Import YouTube playlist</h2>
+      <h2>Import a YouTube playlist</h2>
+      <p>To add a shared YouTube chart, paste a public playlist URL, choose <em>Everyone</em>, click <em>Preview</em>, then confirm <em>Add shared chart</em>. Shared charts are visible to every user and refresh every 24 hours.</p>
       <form method="post" action="/playlist-imports/preview">
         {{ csrf(user.csrf) }}
         <label>Playlist URL <input type="url" name="url" required maxlength="2048" placeholder="https://music.youtube.com/playlist?list=…"></label>
         {% if user.admin %}
-          <label>Visibility <select name="scope"><option value="private">Only me</option><option value="shared">Everyone · refresh every 24 hours</option></select></label>
+          <label>Visibility <select name="scope"><option value="private">Private · only me</option><option value="shared">Everyone · shared chart</option></select></label>
         {% endif %}
         <button type="submit">Preview</button>
       </form>

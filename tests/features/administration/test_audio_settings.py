@@ -30,6 +30,40 @@ def test_audio_settings_round_trip(tmp_path):
     assert repository.snapshot() == settings
 
 
+def test_audio_settings_separate_stream_and_download_providers(tmp_path):
+    accounts = make_accounts(tmp_path)
+    repository = AudioSettingsRepository(accounts.repository.database)
+    settings = AudioSettings(
+        stream_provider="jumo",
+        download_provider="youtube",
+    )
+
+    repository.save(settings)
+
+    assert repository.snapshot() == settings
+
+
+def test_audio_settings_form_uses_megabytes():
+    settings = AudioSettings.from_form(
+        {
+            "stream_provider": "jumo",
+            "download_provider": "youtube",
+            "policy": "aac",
+            "cache_mb": "16.5",
+            "file_max_mb": "4.25",
+            "free_reserve_mb": "2",
+            "timeout_seconds": "45",
+            "jumo_base_url": "https://jumo-dl.pages.dev",
+            "jumo_region": "",
+            "jumo_quality": "original",
+        }
+    )
+
+    assert settings.cache_bytes == round(16.5 * 1024 * 1024)
+    assert settings.file_max_bytes == round(4.25 * 1024 * 1024)
+    assert settings.free_reserve_bytes == 2 * 1024 * 1024
+
+
 @pytest.mark.parametrize(
     "changes",
     [

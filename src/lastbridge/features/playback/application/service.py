@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import logging
 import time
 
 import anyio
@@ -13,6 +14,8 @@ from lastbridge.features.playback.application.ports import (
 )
 from lastbridge.features.playback.domain.models import VIDEO_ID
 from lastbridge.shared.errors import CatalogError
+
+logger = logging.getLogger(__name__)
 
 
 class AudioCache:
@@ -31,7 +34,9 @@ class AudioCache:
         self.ready_notifier = ready_notifier
 
     async def configure(self, settings: AudioConfiguration):
-        if settings.provider not in ("youtube", "jumo"):
+        if settings.stream_provider not in ("youtube", "jumo") or (
+            settings.download_provider not in ("youtube", "jumo")
+        ):
             raise ValueError("Select a supported audio provider.")
         configure = getattr(self.provider, "configure", None)
         if configure is not None:
@@ -80,7 +85,7 @@ class AudioCache:
                 return True
             return False
 
-    async def acquire(self, source):
+    async def acquire(self, source, role="stream"):
         if not VIDEO_ID.fullmatch(source):
             raise CatalogError(70, "Recording not found")
         key = f"{source}-{self.storage.policy}"
@@ -98,7 +103,7 @@ class AudioCache:
                     # Reserve against concurrent jobs on the same filesystem.
                     self.storage.check_space()
                     self.storage.reserved += self.storage.allowance
-                    task = asyncio.create_task(self.fill(source, key))
+                    task = asyncio.create_task(self.fill(source, key, role))
                     self.storage.jobs[key] = task
                     # Retrieve errors even when all requesting clients cancel.
                     task.add_done_callback(
@@ -117,19 +122,33 @@ class AudioCache:
                     with contextlib.suppress(OSError):
                         self.manifest(key, entry)
                 return key, dict(entry)
-            except BaseException:
+            except BaseException as error:
+                if not isinstance(error, asyncio.CancelledError):
+                    logger.warning(
+                        "Audio acquisition failed role=%s source=%s "
+                        "error_type=%s reason=%s",
+                        role,
+                        source,
+                        type(error).__name__,
+                        getattr(error, "message", "unknown"),
+                    )
                 with anyio.CancelScope(shield=True):
                     await self.release(key)
                 raise
         except OSError:
             raise CatalogError(0, "Audio storage unavailable") from None
 
-    async def fill(self, source, key):
+    async def fill(self, source, key, role="stream"):
         destination = None
         saved = False
         try:
             with self.storage.staging() as directory:
-                result = await self.provider.fetch(
+                provider = getattr(self.provider, "for_role", lambda _: None)(
+                    role
+                )
+                if provider is None:
+                    provider = self.provider
+                result = await provider.fetch(
                     source,
                     self.storage.policy,
                     directory,
@@ -154,7 +173,8 @@ class AudioCache:
                 self.storage.jobs.pop(key, None)
 
     async def response(self, source, download=False):
-        key, entry = await self.acquire(source)
+        role = "download" if download else "stream"
+        key, entry = await self.acquire(source, role=role)
         try:
             return self.response_factory(self, key, entry, download)
         except BaseException:

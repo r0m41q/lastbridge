@@ -290,10 +290,21 @@
 @layer components {
   .identity { margin-top: auto; }
   .sidebar nav { margin-top: 34px; }
+  .sidebar-footer { margin-top: auto; }
+  .sidebar-footer .identity { margin-top: 0; }
+  .sidebar-signout { margin: 14px 0 0; }
+  .sidebar-signout button { width: 100%; min-height: 40px; padding: 8px 12px; color: var(--muted); background: transparent; border-color: var(--line); }
+  .sidebar-signout button:hover { color: var(--ink); background: var(--raised); }
   .login-panel { max-width: 460px; margin: 0 auto; border: 1px solid var(--line); border-radius: var(--radius); }
 }
 @layer responsive {
-  @media (max-width: 640px) { .sidebar nav { margin-top: 0; } }
+  @media (max-width: 640px) {
+    .sidebar nav { margin-top: 0; }
+    .sidebar-footer { display: flex; align-items: center; gap: 14px; padding: 0 0 12px; }
+    .sidebar-footer .identity { display: flex; flex: 1; border-top: 0; padding-top: 0; }
+    .sidebar-signout { margin: 0; }
+    .sidebar-signout button { min-height: 40px; }
+  }
 }
 
 @layer components {

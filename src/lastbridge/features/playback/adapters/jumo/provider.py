@@ -1,11 +1,14 @@
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import signal
 import sys
 
 from lastbridge.shared.errors import CatalogError
+
+logger = logging.getLogger(__name__)
 
 
 class AudioProvider:
@@ -63,9 +66,25 @@ class AudioProvider:
                 return json.loads(output)
 
             result = await asyncio.wait_for(exchange(), self.timeout)
-            if process.returncode or not isinstance(result, dict):
+            if process.returncode:
+                logger.warning(
+                    "Jumo audio worker exited source=%s exit_code=%s",
+                    source,
+                    process.returncode,
+                )
+                raise CatalogError(0, "Jumo audio provider unavailable; retry")
+            if not isinstance(result, dict):
+                logger.warning(
+                    "Jumo audio worker returned an invalid response source=%s",
+                    source,
+                )
                 raise CatalogError(0, "Jumo audio provider unavailable; retry")
             if result.get("error"):
+                logger.warning(
+                    "Jumo audio worker reported failure source=%s reason=%s",
+                    source,
+                    result["error"],
+                )
                 messages = {
                     "no_match": "Recording unavailable from Jumo-DL",
                     "preview_only": (
@@ -86,10 +105,16 @@ class AudioProvider:
                 )
             return result
         except TimeoutError:
+            logger.warning("Jumo audio worker timed out source=%s", source)
             raise CatalogError(
                 0, "Jumo audio acquisition timed out; retry"
             ) from None
-        except ValueError, TypeError, OSError:
+        except (ValueError, TypeError, OSError) as error:
+            logger.warning(
+                "Jumo audio worker failed source=%s error_type=%s",
+                source,
+                type(error).__name__,
+            )
             raise CatalogError(
                 0, "Jumo audio provider unavailable; retry"
             ) from None

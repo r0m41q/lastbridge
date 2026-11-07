@@ -27,6 +27,17 @@ def test_admin_can_view_dashboard_before_lastfm_link(service):
     assert response.status_code == 200
     assert 'href="/admin" aria-current="page"' in response.text
     assert "alice" in response.text and "Saved audio" in response.text
+    assert 'name="stream_provider"' in response.text
+    assert 'name="download_provider"' in response.text
+    assert 'name="cache_mb"' in response.text
+    assert "cache_bytes" not in response.text
+    assert "file_max_bytes" not in response.text
+    assert "free_reserve_bytes" not in response.text
+    assert " MB" in response.text
+    assert "Add a shared chart" in response.text
+    assert response.text.index("Shared YouTube charts") < response.text.index(
+        "Audio providers and limits"
+    )
     account = app.state.services.accounts.user("admin")
     for field in ("password_hash", "lastfm_secret", "client_secret"):
         value = account.get(field)
@@ -42,12 +53,13 @@ def test_admin_can_update_audio_settings(service):
     token = csrf(client.get("/admin"))
     values = {
         "csrf": token,
-        "provider": "youtube",
+        "stream_provider": "jumo",
+        "download_provider": "youtube",
         "youtube_fallback": "yes",
         "policy": "opus",
-        "cache_bytes": str(16 * 1024 * 1024),
-        "file_max_bytes": str(4 * 1024 * 1024),
-        "free_reserve_bytes": str(2 * 1024 * 1024),
+        "cache_mb": "16",
+        "file_max_mb": "4",
+        "free_reserve_mb": "2",
         "timeout_seconds": "45",
         "jumo_base_url": "https://jumo-dl.pages.dev",
         "jumo_region": "",
@@ -64,7 +76,8 @@ def test_admin_can_update_audio_settings(service):
     assert (
         app.state.services.administration.audio_settings.snapshot().as_dict()
         == {
-            "provider": "youtube",
+            "stream_provider": "jumo",
+            "download_provider": "youtube",
             "policy": "opus",
             "cache_bytes": 16 * 1024 * 1024,
             "file_max_bytes": 4 * 1024 * 1024,
@@ -84,11 +97,12 @@ def test_invalid_audio_settings_are_not_saved(service):
     token = csrf(client.get("/admin"))
     values = {
         "csrf": token,
-        "provider": "youtube",
+        "stream_provider": "youtube",
+        "download_provider": "youtube",
         "policy": "opus",
-        "cache_bytes": str(4 * 1024 * 1024),
-        "file_max_bytes": str(4 * 1024 * 1024),
-        "free_reserve_bytes": "0",
+        "cache_mb": "4",
+        "file_max_mb": "4",
+        "free_reserve_mb": "0",
         "timeout_seconds": "45",
         "jumo_base_url": "https://jumo-dl.pages.dev",
         "jumo_region": "",
@@ -282,7 +296,7 @@ def test_low_disk_and_transfer_reservations_are_visible(service, monkeypatch):
     response = client.get("/admin")
     assert response.status_code == 200
     assert "Low disk space" in response.text
-    assert "10 B" in response.text
+    assert "0.00 MB" in response.text
     report = client.portal.call(app.state.services.administration.dashboard)
     assert report["storage"]["low_space"]
     assert report["storage"]["reserved"] == 0

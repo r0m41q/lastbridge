@@ -8,7 +8,10 @@ from lastbridge.features.administration.application.ports import (
 from lastbridge.features.administration.domain.accounting import (
     account_storage,
 )
-from lastbridge.features.administration.domain.audio import AudioSettings
+from lastbridge.features.administration.domain.audio import (
+    MEGABYTE,
+    AudioSettings,
+)
 
 
 class Administration:
@@ -46,9 +49,9 @@ class Administration:
             .within_ceilings(self.audio_ceilings)
             .as_dict(),
             "audio_ceilings": {
-                "cache_bytes": self.audio_ceilings[0],
-                "file_max_bytes": self.audio_ceilings[1],
-                "free_reserve_bytes": self.audio_ceilings[2],
+                "cache_mb": self.audio_ceilings[0] / MEGABYTE,
+                "file_max_mb": self.audio_ceilings[1] / MEGABYTE,
+                "free_reserve_mb": self.audio_ceilings[2] / MEGABYTE,
             },
             "storage": usage | totals,
         }
