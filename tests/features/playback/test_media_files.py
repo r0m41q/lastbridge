@@ -4,6 +4,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
+import httpx
 import pytest
 from support.audio import SOURCE, FakeAudio
 
@@ -12,6 +13,9 @@ from lastbridge.features.playback.adapters.filesystem.metadata import (
 )
 from lastbridge.features.playback.adapters.filesystem.storage import AudioFiles
 from lastbridge.features.playback.adapters.http.response import AudioResponse
+from lastbridge.features.playback.adapters.jellyfin.notifier import (
+    JellyfinScanNotifier,
+)
 from lastbridge.features.playback.adapters.sqlite.repository import (
     MediaFileRepository,
 )
@@ -37,7 +41,9 @@ def make_repository(tmp_path):
     return MediaFileRepository(database), database
 
 
-def make_managed_audio(tmp_path, pins=(), metadata_writer=None):
+def make_managed_audio(
+    tmp_path, pins=(), metadata_writer=None, ready_notifier=None
+):
     repository, _ = make_repository(tmp_path)
     descriptors = {
         SOURCE: MediaDescriptor(
@@ -72,7 +78,15 @@ def make_managed_audio(tmp_path, pins=(), metadata_writer=None):
         metadata_writer=metadata_writer or CopyMetadata(),
         descriptor_factory=descriptor_factory,
     )
-    return AudioCache(storage, FakeAudio(), AudioResponse), repository
+    return (
+        AudioCache(
+            storage,
+            FakeAudio(),
+            AudioResponse,
+            ready_notifier,
+        ),
+        repository,
+    )
 
 
 def test_media_migration_creates_version_11_table(tmp_path):
@@ -387,3 +401,51 @@ def test_managed_publication_failure_leaves_retryable_media_record(tmp_path):
         await audio.close()
 
     asyncio.run(scenario())
+
+
+def test_ready_notifier_runs_after_saved_media_is_ready(tmp_path):
+    async def scenario():
+        calls = []
+
+        class Notifier:
+            async def notify(self):
+                calls.append(True)
+
+            async def close(self):
+                pass
+
+        key = f"{SOURCE}-aac"
+        audio, repository = make_managed_audio(
+            tmp_path, {key}, ready_notifier=Notifier()
+        )
+        key, entry = await audio.acquire(SOURCE)
+        assert entry["saved"]
+        assert repository.get(SOURCE, "aac").state == "ready"
+        assert calls == [True]
+        await audio.release(key)
+        await audio.close()
+
+    asyncio.run(scenario())
+
+
+def test_jellyfin_notifier_posts_refresh_request():
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return httpx.Response(204, request=request)
+
+    async def scenario():
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        notifier = JellyfinScanNotifier(
+            "http://jellyfin:8096/Library/Refresh",
+            "test-api-key",
+            client=client,
+        )
+        await notifier.notify()
+        await notifier.close()
+
+    asyncio.run(scenario())
+    request = requests[0]
+    assert request.url.path == "/Library/Refresh"
+    assert request.headers["X-Emby-Token"] == "test-api-key"

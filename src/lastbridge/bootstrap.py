@@ -58,6 +58,9 @@ from lastbridge.features.playback.adapters.filesystem.metadata import (
 )
 from lastbridge.features.playback.adapters.filesystem.storage import AudioFiles
 from lastbridge.features.playback.adapters.http.response import AudioResponse
+from lastbridge.features.playback.adapters.jellyfin.notifier import (
+    JellyfinScanNotifier,
+)
 from lastbridge.features.playback.adapters.sqlite.repository import (
     MediaFileRepository,
 )
@@ -204,6 +207,7 @@ async def bootstrap(
             media_placement = None
             metadata_writer = None
             descriptor_factory = None
+            ready_notifier = None
             if providers is None:
                 media_files = MediaFileRepository(database)
                 media_placement = MediaPlacement(media_files)
@@ -213,6 +217,11 @@ async def bootstrap(
                     return catalog_media_descriptor(catalog, source, policy)
 
                 descriptor_factory = make_descriptor
+                if config.jellyfin_scan_url:
+                    ready_notifier = JellyfinScanNotifier(
+                        config.jellyfin_scan_url,
+                        config.jellyfin_api_key.get_secret_value(),
+                    )
             storage = AudioFiles(
                 config.data_dir / "cache" / "audio",
                 budget=config.audio_cache_bytes,
@@ -232,6 +241,7 @@ async def bootstrap(
                 if selected.audio is not None
                 else AudioProvider(),
                 AudioResponse,
+                ready_notifier,
             )
         except Exception:
             raise RuntimeError("Cannot initialize audio cache") from None

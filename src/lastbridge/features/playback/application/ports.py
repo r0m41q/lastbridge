@@ -22,6 +22,11 @@ class AudioProvider(Protocol):
     ) -> dict: ...
 
 
+class ReadyNotifier(Protocol):
+    async def notify(self): ...
+    async def close(self): ...
+
+
 class AudioStorage(Protocol):
     directory: Path
     incoming: Path

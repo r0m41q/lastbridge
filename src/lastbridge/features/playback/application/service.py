@@ -7,6 +7,7 @@ import anyio
 from lastbridge.features.playback.application.ports import (
     AudioProvider,
     AudioStorage,
+    ReadyNotifier,
     ResponseFactory,
 )
 from lastbridge.features.playback.domain.models import VIDEO_ID
@@ -21,10 +22,12 @@ class AudioCache:
         storage: AudioStorage,
         provider: AudioProvider,
         response_factory: ResponseFactory,
+        ready_notifier: ReadyNotifier | None = None,
     ):
         self.storage = storage
         self.provider = provider
         self.response_factory = response_factory
+        self.ready_notifier = ready_notifier
 
     @property
     def entries(self):
@@ -104,6 +107,7 @@ class AudioCache:
 
     async def fill(self, source, key):
         destination = None
+        saved = False
         try:
             with self.storage.staging() as directory:
                 result = await self.provider.fetch(
@@ -117,6 +121,9 @@ class AudioCache:
                 async with self.storage.lock:
                     entry["saved"] = key in self.storage.pins
                     destination = self.storage.publish(key, directory, entry)
+                    saved = entry["saved"]
+                if saved and self.ready_notifier is not None:
+                    await self.ready_notifier.notify()
         except OSError, ValueError, TypeError, KeyError:
             raise CatalogError(0, "Audio acquisition failed; retry") from None
         finally:
@@ -159,3 +166,5 @@ class AudioCache:
             task.cancel()
         await asyncio.gather(*jobs, return_exceptions=True)
         self.storage.close()
+        if self.ready_notifier is not None:
+            await self.ready_notifier.close()
