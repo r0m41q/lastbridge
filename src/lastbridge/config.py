@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     mix_inactive_days: int = Field(default=7, ge=1, le=3650)
     lastfm_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
     lastfm_api_secret: SecretStr = Field(default=SecretStr(""), repr=False)
+    jellyfin_scan_url: str = ""
+    jellyfin_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
 
     @field_validator("lastfm_api_key", "lastfm_api_secret")
     @classmethod
@@ -48,6 +50,34 @@ class Settings(BaseSettings):
             self.lastfm_api_secret.get_secret_value()
         ):
             raise ValueError("Set both Last.fm API key and API secret")
+        return self
+
+    @field_validator("jellyfin_scan_url")
+    @classmethod
+    def validate_jellyfin_scan_url(cls, value: str) -> str:
+        if not value:
+            return value
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme not in ("http", "https")
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("jellyfin_scan_url must be an HTTP(S) URL")
+        _ = parsed.port
+        return value.rstrip("/")
+
+    @model_validator(mode="after")
+    def validate_jellyfin_pair(self):
+        if bool(self.jellyfin_scan_url) != bool(
+            self.jellyfin_api_key.get_secret_value()
+        ):
+            raise ValueError(
+                "Set both Jellyfin scan URL and Jellyfin API key"
+            )
         return self
 
     @field_validator("public_url")

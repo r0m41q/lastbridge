@@ -67,6 +67,20 @@ def test_invalid_port_rejected(port: int) -> None:
         Settings(_env_file=None, port=port)
 
 
+def test_jellyfin_scan_configuration_requires_url_and_key() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            jellyfin_scan_url="http://jellyfin:8096/Library/Refresh",
+        )
+    settings = Settings(
+        _env_file=None,
+        jellyfin_scan_url="http://jellyfin:8096/Library/Refresh",
+        jellyfin_api_key="test-api-key",
+    )
+    assert settings.jellyfin_scan_url.endswith("/Library/Refresh")
+
+
 def test_invalid_config_does_not_log_input(tmp_path: Path) -> None:
     environment = os.environ | {
         "LASTBRIDGE_PORT": "credential-like-test-value"

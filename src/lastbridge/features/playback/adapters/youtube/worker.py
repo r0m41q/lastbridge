@@ -76,6 +76,7 @@ def download(payload):
             "extractor_args": {"youtube": {"player_client": ["visionos"]}},
             "format": select,
             "outtmpl": str(directory / "audio.%(ext)s"),
+            "postprocessors": [{"key": "FFmpegMetadata"}],
             "max_filesize": maximum,
             "progress_hooks": [progress],
             "buffersize": 64 * 1024,

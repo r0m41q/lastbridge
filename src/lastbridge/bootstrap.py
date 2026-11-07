@@ -1,5 +1,3 @@
-"""Explicit construction and single-owner resource lifecycle."""
-
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -55,15 +53,26 @@ from lastbridge.features.lyrics.adapters.sqlite.repository import (
     LyricsRepository,
 )
 from lastbridge.features.lyrics.application.service import Lyrics
+from lastbridge.features.playback.adapters.filesystem.metadata import (
+    MetadataWriter,
+)
 from lastbridge.features.playback.adapters.filesystem.storage import AudioFiles
 from lastbridge.features.playback.adapters.http.response import AudioResponse
+from lastbridge.features.playback.adapters.jellyfin.notifier import (
+    JellyfinScanNotifier,
+)
+from lastbridge.features.playback.adapters.sqlite.repository import (
+    MediaFileRepository,
+)
 from lastbridge.features.playback.adapters.youtube.provider import (
     AudioProvider,
 )
+from lastbridge.features.playback.application.media import MediaPlacement
 from lastbridge.features.playback.application.ports import (
     AudioProvider as AudioProviderPort,
 )
 from lastbridge.features.playback.application.service import AudioCache
+from lastbridge.features.playback.domain.models import MediaDescriptor
 from lastbridge.features.playlists.adapters.sqlite.imports import (
     ImportRepository,
 )
@@ -128,6 +137,21 @@ def account_storage(
     )
 
 
+def catalog_media_descriptor(catalog, source, policy):
+    stored = catalog.read_source(source, "song")
+    document = stored["document"]
+    return MediaDescriptor(
+        source=source,
+        policy=policy,
+        title=document.get("title") or source,
+        artist=document.get("artist") or "Unknown Artist",
+        album=document.get("album"),
+        album_artist=document.get("artist"),
+        track_number=document.get("track"),
+        year=document.get("year"),
+    )
+
+
 @asynccontextmanager
 async def bootstrap(
     config: Settings,
@@ -179,6 +203,25 @@ async def bootstrap(
             ) from None
 
         try:
+            media_files = None
+            media_placement = None
+            metadata_writer = None
+            descriptor_factory = None
+            ready_notifier = None
+            if providers is None:
+                media_files = MediaFileRepository(database)
+                media_placement = MediaPlacement(media_files)
+                metadata_writer = MetadataWriter()
+
+                def make_descriptor(source, policy):
+                    return catalog_media_descriptor(catalog, source, policy)
+
+                descriptor_factory = make_descriptor
+                if config.jellyfin_scan_url:
+                    ready_notifier = JellyfinScanNotifier(
+                        config.jellyfin_scan_url,
+                        config.jellyfin_api_key.get_secret_value(),
+                    )
             storage = AudioFiles(
                 config.data_dir / "cache" / "audio",
                 budget=config.audio_cache_bytes,
@@ -187,6 +230,10 @@ async def bootstrap(
                 policy=config.audio_policy,
                 saved_directory=config.data_dir / "saved" / "audio",
                 pins=library.pins(),
+                media_files=media_files,
+                media_placement=media_placement,
+                metadata_writer=metadata_writer,
+                descriptor_factory=descriptor_factory,
             )
             audio = AudioCache(
                 storage,
@@ -194,6 +241,7 @@ async def bootstrap(
                 if selected.audio is not None
                 else AudioProvider(),
                 AudioResponse,
+                ready_notifier,
             )
         except Exception:
             raise RuntimeError("Cannot initialize audio cache") from None

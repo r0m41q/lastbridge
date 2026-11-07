@@ -260,13 +260,14 @@ def test_v5_upgrade_preserves_mixes_and_sync(radio_service):
     with app.state.services.database.transaction() as connection:
         drop_playlist_tables(connection)
         connection.execute("DROP TABLE lyrics")
+        connection.execute("DROP TABLE media_files")
         connection.execute("DROP TABLE radio")
         connection.execute("PRAGMA user_version=5")
     store = make_accounts(app.state.services.database.path.parent)
     assert rows(service, "mixes") == before
     assert store.client_user({"apiKey": service[3]["admin"]})
     with store.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
 
 
 @pytest.mark.parametrize(

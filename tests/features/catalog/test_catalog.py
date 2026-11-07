@@ -370,13 +370,14 @@ def test_migration_from_v1_preserves_accounts(tmp_path):
         connection.execute("DROP TABLE favorite_tracks")
         connection.execute("DROP TABLE favorites")
         connection.execute("DROP TABLE save_jobs")
+        connection.execute("DROP TABLE media_files")
         connection.execute("ALTER TABLE users DROP COLUMN library_changed")
         connection.execute("DROP TABLE catalog")
         connection.execute("PRAGMA user_version=1")
     migrated = make_accounts(tmp_path)
     assert migrated.user("admin")["admin"] == 1
     with migrated.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
         assert (
             connection.execute("SELECT count(*) FROM catalog").fetchone()[0]
             == 0

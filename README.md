@@ -29,6 +29,9 @@ Edit `.env` before starting:
   [Last.fm application](https://www.last.fm/api/account/create). Use
   `<LASTBRIDGE_PUBLIC_URL>/lastfm/callback` as its callback URL.
 - For LAN access, set `LASTBRIDGE_HOST=0.0.0.0`; publishing is loopback-only by default.
+- Set `LASTBRIDGE_DATA_DIR_HOST` to the NVMe directory for the database and bounded
+  cache, and `LASTBRIDGE_SAVED_AUDIO_DIR_HOST` to the HDD directory that Jellyfin
+  scans. These are host paths only; the container paths stay fixed.
 
 ```sh
 docker compose up -d --build
@@ -86,13 +89,45 @@ docker compose logs -f lastbridge
 
 ## Data and backups
 
-Docker stores persistent data in the `lastbridge-data` named volume, mounted at
-`/app/data`. Local development uses `data/` by default.
+Docker stores the database, credentials, and bounded playback cache in
+`/app/data`. For a server deployment, bind-mount that directory to NVMe and
+bind-mount `/app/data/saved/audio` separately to the HDD music library. Saved
+audio is the permanent copy and can be scanned by Jellyfin; the cache remains
+temporary and bounded.
 
-Stop the service and back up the **whole data volume** before upgrading. Keep the
-SQLite database, `credentials.key`, and saved audio together: losing the key makes
-encrypted credentials unrecoverable. Database upgrades run automatically; rolling
-back may require restoring the backup with the matching application version.
+Saved recordings preserve the selected audio policy and container. Lastbridge
+does not transcode audio for Jellyfin: AAC/M4A and Opus/WebM remain separate
+supported policies, and clients must support the selected format.
+
+The container runs as UID 10001. The host paths must be writable by UID 10001
+and readable/traversable by the Jellyfin process. For a dedicated Lastbridge
+subtree, for example:
+
+```sh
+sudo mkdir -p /mnt/nvme/docker-manual-data/lastbridge \
+  /mnt/hdd/media/music/Lastbridge
+sudo chown -R 10001:10001 /mnt/nvme/docker-manual-data/lastbridge \
+  /mnt/hdd/media/music/Lastbridge
+sudo chmod -R u+rwX,go+rX /mnt/nvme/docker-manual-data/lastbridge \
+  /mnt/hdd/media/music/Lastbridge
+```
+
+If Jellyfin runs with a restricted UID or group, use a shared group or ACL
+instead of broadening permissions on the parent media tree. Do not grant
+Lastbridge ownership of unrelated media directories.
+
+Jellyfin scanning is independent. Optionally set
+`LASTBRIDGE_JELLYFIN_SCAN_URL` to a reachable `POST` refresh endpoint such as
+`http://jellyfin:8096/Library/Refresh` and provide
+`LASTBRIDGE_JELLYFIN_API_KEY`. Lastbridge requests a scan only after a saved
+file reaches `ready`; a failed optional request does not fail the download.
+For bulk imports, scheduled or manual Jellyfin scans are preferable.
+
+Stop the service and back up both `LASTBRIDGE_DATA_DIR_HOST` (NVMe) and
+`LASTBRIDGE_SAVED_AUDIO_DIR_HOST` (HDD) before upgrading. Keep the SQLite database,
+`credentials.key`, and saved audio together: losing the key makes encrypted
+credentials unrecoverable. Database upgrades run automatically; rolling back
+may require restoring the backup with the matching application version.
 
 `docker compose down` preserves data. Adding `--volumes` deletes it.
 

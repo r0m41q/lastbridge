@@ -37,6 +37,20 @@ class CatalogRepository:
             )
         }
 
+    def read_source(self, source, kind):
+        with self.database.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM catalog WHERE source=? AND kind=?",
+                (source, kind),
+            ).fetchone()
+        if row is None:
+            raise CatalogError(70, "Catalog item not found")
+        return dict(row) | {
+            "document": self.document_policy(
+                row["kind"], json.loads(row["document"])
+            )
+        }
+
     def put(self, kind, source, document, image=None, complete=False):
         if not isinstance(source, str) or not SOURCE.fullmatch(source):
             raise CatalogError(70, "Catalog item unavailable")

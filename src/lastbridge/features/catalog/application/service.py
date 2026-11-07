@@ -28,6 +28,9 @@ class Catalog:
     def read(self, item_id, kind=None):
         return self.repository.read(item_id, kind)
 
+    def read_source(self, source, kind):
+        return self.repository.read_source(source, kind)
+
     def put(self, *args, **kwargs):
         return self.repository.put(*args, **kwargs)
 
