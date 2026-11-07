@@ -29,17 +29,25 @@ class MediaFileRepository:
             ).fetchall()
         return [self._record(row) for row in rows]
 
-    def ensure(self, descriptor: MediaDescriptor) -> MediaFile:
+    def ensure(
+        self,
+        descriptor: MediaDescriptor,
+        relative_path: str | None = None,
+    ) -> MediaFile:
+        if descriptor.policy not in RENDITIONS:
+            raise ValueError("Unknown audio policy")
         container = RENDITIONS[descriptor.policy][0]
         now = time.time()
         with self.database.transaction() as connection:
             connection.execute(
                 "INSERT OR IGNORE INTO media_files "
-                "(source,policy,container,state,created,updated) "
-                "VALUES(?,?,?,'pending',?,?)",
+                "(source,policy,relative_path,container,state,created,"
+                "updated) "
+                "VALUES(?,?,?,?,'pending',?,?)",
                 (
                     descriptor.source,
                     descriptor.policy,
+                    relative_path,
                     container,
                     now,
                     now,
@@ -49,6 +57,21 @@ class MediaFileRepository:
                 "SELECT * FROM media_files WHERE source=? AND policy=?",
                 (descriptor.source, descriptor.policy),
             ).fetchone()
+            if row["relative_path"] is None and relative_path is not None:
+                connection.execute(
+                    "UPDATE media_files SET relative_path=?,updated=? "
+                    "WHERE source=? AND policy=? AND relative_path IS NULL",
+                    (
+                        relative_path,
+                        now,
+                        descriptor.source,
+                        descriptor.policy,
+                    ),
+                )
+                row = connection.execute(
+                    "SELECT * FROM media_files WHERE source=? AND policy=?",
+                    (descriptor.source, descriptor.policy),
+                ).fetchone()
         return self._record(row)
 
     def save(self, media_file: MediaFile) -> MediaFile:
