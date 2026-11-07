@@ -18,7 +18,11 @@ services:
       LASTBRIDGE_MIX_REFRESH_HOURS: ${LASTBRIDGE_MIX_REFRESH_HOURS:-24}
       LASTBRIDGE_MIX_INACTIVE_DAYS: ${LASTBRIDGE_MIX_INACTIVE_DAYS:-7}
     volumes:
-      - lastbridge-data:/app/data
+      # Application database and bounded playback cache
+      - ${LASTBRIDGE_DATA_DIR_HOST:-./data}:/app/data
+
+      # Permanent saved audio
+      - ${LASTBRIDGE_SAVED_AUDIO_DIR_HOST:-./data/saved/audio}:/app/data/saved/audio
     init: true
     healthcheck:
       test:
@@ -30,6 +34,3 @@ services:
       timeout: 3s
       start_period: 5s
       retries: 3
-
-volumes:
-  lastbridge-data:

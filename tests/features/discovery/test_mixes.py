@@ -330,6 +330,7 @@ def test_v4_upgrade_preserves_sync_and_saved_state(mix_service):
         drop_playlist_tables(connection)
         connection.execute("DROP TABLE lyrics")
         connection.execute("DROP TABLE radio")
+        connection.execute("DROP TABLE media_files")
         connection.execute("DROP TABLE mixes")
         connection.execute("PRAGMA user_version=4")
     migrated = make_accounts(app.state.services.database.path.parent)
@@ -340,7 +341,7 @@ def test_v4_upgrade_preserves_sync_and_saved_state(mix_service):
         == "admin"
     )
     with migrated.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
         assert (
             connection.execute("SELECT count(*) FROM mixes").fetchone()[0] == 0
         )

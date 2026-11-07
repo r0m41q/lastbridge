@@ -20,6 +20,7 @@ def test_schema_nine_upgrade_and_backup_restore_preserve_existing_state(
     # Simulate the previous schema, with actual catalog/account state present.
     with account.repository.database.transaction() as connection:
         connection.execute("DROP TABLE playlist_imports")
+        connection.execute("DROP TABLE media_files")
         connection.execute("PRAGMA user_version=9")
         tables = [
             r[0]
@@ -39,7 +40,7 @@ def test_schema_nine_upgrade_and_backup_restore_preserve_existing_state(
         }
     migrated = make_accounts(directory)
     with migrated.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
         assert (
             connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         )

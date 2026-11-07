@@ -5,6 +5,11 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Protocol
 
+from lastbridge.features.playback.domain.models import (
+    MediaDescriptor,
+    MediaFile,
+)
+
 
 class AudioProvider(Protocol):
     async def fetch(
@@ -46,6 +51,18 @@ class AudioStorage(Protocol):
     def publish(self, key: str, directory: Path, entry: dict): ...
     def discard(self, destination: Path): ...
     def close(self): ...
+
+
+class MediaFiles(Protocol):
+    def get(self, source: str, policy: str) -> MediaFile | None: ...
+    def list(self) -> list[MediaFile]: ...
+    def ensure(self, descriptor: MediaDescriptor) -> MediaFile: ...
+    def save(self, media_file: MediaFile) -> MediaFile: ...
+
+    def transition(
+        self, source: str, policy: str, state: str, **changes
+    ) -> MediaFile: ...
+    def delete(self, source: str, policy: str) -> bool: ...
 
 
 ResponseFactory = Callable[..., object]

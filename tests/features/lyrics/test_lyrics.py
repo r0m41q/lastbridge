@@ -428,6 +428,7 @@ def test_schema_six_upgrade_preserves_accounts_catalog_and_radio(
             (store.user("admin")["id"], "example", song["id"], "[]", 1, 2),
         )
         drop_playlist_tables(connection)
+        connection.execute("DROP TABLE media_files")
         connection.execute("DROP TABLE lyrics")
         connection.execute("PRAGMA user_version=6")
     migrated = make_accounts(store.repository.database.path.parent)
@@ -436,7 +437,7 @@ def test_schema_six_upgrade_preserves_accounts_catalog_and_radio(
         service[1].state.services.catalog.read(song["id"])["document"] == song
     )
     with migrated.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
         assert connection.execute("SELECT * FROM radio").fetchone()["seed_id"]
         assert not connection.execute("SELECT * FROM lyrics").fetchall()
 

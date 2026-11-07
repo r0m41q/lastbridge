@@ -86,13 +86,22 @@ docker compose logs -f lastbridge
 
 ## Data and backups
 
-Docker stores persistent data in the `lastbridge-data` named volume, mounted at
-`/app/data`. Local development uses `data/` by default.
+Docker stores the database, credentials, and bounded playback cache in
+`/app/data`. For a server deployment, bind-mount that directory to NVMe and
+bind-mount `/app/data/saved/audio` separately to the HDD music library. Saved
+audio is the permanent copy and can be scanned by Jellyfin; the cache remains
+temporary and bounded.
 
-Stop the service and back up the **whole data volume** before upgrading. Keep the
-SQLite database, `credentials.key`, and saved audio together: losing the key makes
-encrypted credentials unrecoverable. Database upgrades run automatically; rolling
-back may require restoring the backup with the matching application version.
+Use the default `aac` audio policy for the Jellyfin library. Saved recordings
+are M4A files with provider metadata written into the container without an
+audio transcode; the optional `opus` policy is intended for clients that
+support WebM/Opus playback.
+
+Stop the service and back up both the NVMe Lastbridge directory and the HDD
+saved-audio directory before upgrading. Keep the SQLite database,
+`credentials.key`, and saved audio together: losing the key makes encrypted
+credentials unrecoverable. Database upgrades run automatically; rolling back
+may require restoring the backup with the matching application version.
 
 `docker compose down` preserves data. Adding `--volumes` deletes it.
 

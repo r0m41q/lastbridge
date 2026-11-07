@@ -48,9 +48,6 @@ class AudioFiles:
         self.saved_directory = saved_directory
         if saved_directory is not None:
             saved_directory.mkdir(parents=True, exist_ok=True)
-            if saved_directory.stat().st_dev != directory.stat().st_dev:
-                self.owner.close()
-                raise RuntimeError("Audio storage must share a filesystem")
         self.incoming = directory / ".incoming"
         try:
             # Only our private staging tree is disposable. Never touch saved/.
@@ -106,9 +103,9 @@ class AudioFiles:
                 path.unlink(missing_ok=True)
 
     def cleanup_aliases(self, only=None):
-        # Promotion/demotion uses hard links so a response constructed before
-        # the move still has its path until its last lease ends. On restart no
-        # leases survive; committed manifests choose the authoritative copy.
+        # Promotion/demotion uses committed copies so a response constructed
+        # before the move still has its path until its last lease ends. On
+        # restart no leases survive; manifests choose the authoritative copy.
         roots = [self.directory]
         if self.saved_directory is not None:
             roots.append(self.saved_directory)
@@ -172,23 +169,45 @@ class AudioFiles:
             os.fsync(output.fileno())
         temporary.replace(root / f"{key}.json")
 
+    def _copy_atomic(self, source, destination):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            try:
+                with source.open("rb") as input_file:
+                    shutil.copyfileobj(input_file, temporary)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+                os.replace(temporary_path, destination)
+            except BaseException:
+                temporary_path.unlink(missing_ok=True)
+                raise
+
     def relocate(self, key, saved):
         entry = self.entries[key]
         target = dict(entry, saved=saved)
         source, destination = self.path(key, entry), self.path(key, target)
         if source == destination:
             return
-        # Both directories share a filesystem. Linking preserves bytes and
-        # keeps any old response paths alive without duplicating audio data.
-        if destination.exists():
-            if not os.path.samefile(source, destination):
-                destination.unlink()
-        if not destination.exists():
-            os.link(source, destination)
+        if saved and self.saved_directory is not None:
+            if shutil.disk_usage(self.saved_directory).free < (
+                self.reserve + source.stat().st_size
+            ):
+                raise CatalogError(0, "Not enough free space for audio")
+        # Cache and saved audio may be on different filesystems. Copy through
+        # a same-directory temporary file, then commit the destination before
+        # removing the old copy. This leaves at most a short-lived duplicate.
+        self._copy_atomic(source, destination)
         self.manifest(key, target)
         self.entries[key] = target
         # Delete the old commit marker before deleting the old data path.
         source.with_suffix(".json").unlink(missing_ok=True)
+        source.unlink(missing_ok=True)
         self.cleanup_aliases(key)
 
     def close(self):
@@ -230,12 +249,22 @@ class AudioFiles:
             os.fsync(completed.fileno())
         return {"policy": self.policy, "size": size, "used": time.time()}
 
-    def destination(self, key):
-        return self.directory / f"{key}.{RENDITIONS[self.policy][0]}"
+    def destination(self, key, saved=False):
+        root = (
+            self.saved_directory
+            if saved and self.saved_directory
+            else self.directory
+        )
+        return root / f"{key}.{RENDITIONS[self.policy][0]}"
 
     def publish(self, key, directory, entry):
         extension = RENDITIONS[self.policy][0]
-        (directory / f"audio.{extension}").replace(self.destination(key))
+        source = directory / f"audio.{extension}"
+        destination = self.destination(key, entry.get("saved", False))
+        if source.stat().st_dev == destination.parent.stat().st_dev:
+            source.replace(destination)
+        else:
+            self._copy_atomic(source, destination)
         self.manifest(key, entry)
         self.entries[key] = entry
 
