@@ -29,6 +29,8 @@ def test_admin_can_view_dashboard_before_lastfm_link(service):
     assert "alice" in response.text and "Saved audio" in response.text
     assert 'name="stream_provider"' in response.text
     assert 'name="download_provider"' in response.text
+    assert "Rhythmax" in response.text
+    assert "320 kbps target" in response.text
     assert 'name="cache_mb"' in response.text
     assert "cache_bytes" not in response.text
     assert "file_max_bytes" not in response.text

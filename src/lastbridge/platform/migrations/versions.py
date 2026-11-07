@@ -45,7 +45,7 @@ SCHEMA = (
 def migrate(database, credentials):
     with database.transaction() as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 14:
+        if version > 15:
             raise RuntimeError("Database is newer than this application")
         if version == 0:
             for statement in SCHEMA:
@@ -181,6 +181,24 @@ def migrate(database, credentials):
                     "download_provider=provider"
                 )
             connection.execute("PRAGMA user_version=14")
+        if version < 15:
+            connection.execute(
+                "ALTER TABLE audio_settings RENAME TO audio_settings_old"
+            )
+            connection.execute(AUDIO_SCHEMA)
+            connection.execute(
+                "INSERT INTO audio_settings ("
+                "id,provider,stream_provider,download_provider,policy,"
+                "cache_bytes,file_max_bytes,free_reserve_bytes,"
+                "timeout_seconds,youtube_fallback,jumo_base_url,"
+                "jumo_region,jumo_quality) SELECT "
+                "id,provider,stream_provider,download_provider,policy,"
+                "cache_bytes,file_max_bytes,free_reserve_bytes,"
+                "timeout_seconds,youtube_fallback,jumo_base_url,"
+                "jumo_region,jumo_quality FROM audio_settings_old"
+            )
+            connection.execute("DROP TABLE audio_settings_old")
+            connection.execute("PRAGMA user_version=15")
         check = connection.execute(
             "SELECT value FROM credential_check"
         ).fetchone()[0]

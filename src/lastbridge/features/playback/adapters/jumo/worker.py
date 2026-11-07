@@ -202,9 +202,9 @@ async def download(payload: dict) -> dict:
                 )
         extension = "m4a" if payload["policy"] == "aac" else "webm"
         destination = directory / f"audio.{extension}"
-        codec = ["-c:a", "aac", "-b:a", "256k", "-f", "ipod"]
+        codec = ["-c:a", "aac", "-b:a", "320k", "-f", "ipod"]
         if payload["policy"] == "opus":
-            codec = ["-c:a", "libopus", "-b:a", "160k", "-f", "webm"]
+            codec = ["-c:a", "libopus", "-b:a", "320k", "-f", "webm"]
         subprocess.run(
             [
                 "ffmpeg",

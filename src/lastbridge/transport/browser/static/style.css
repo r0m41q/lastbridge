@@ -155,6 +155,17 @@
   .schedule-row strong { display: block; margin-top: 7px; font-size: 13px; overflow-wrap: anywhere; }
   .schedule-row .eyebrow { font-size: 9px; }
   .notice { border-left: 2px solid var(--accent); padding: 12px 16px; background: var(--raised); border-radius: 0 9px 9px 0; color: var(--muted); font-size: 12px; margin-top: 18px; }
+  .audio-provider-notice strong { color: var(--ink); }
+  .audio-settings-form { max-width: 760px !important; }
+  .audio-settings-group { display: grid; gap: 16px; margin: 22px 0; padding: 18px; border: 1px solid var(--line); border-radius: 13px; }
+  .audio-settings-group legend { padding-inline: 7px; color: var(--ink); font-size: 12px; font-weight: 700; }
+  .audio-settings-group label { margin: 0; }
+  .audio-settings-group small { display: block; margin-top: 6px; font-size: 11px; font-weight: 400; }
+  .audio-provider-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .audio-limit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .audio-checkbox { display: flex !important; align-items: center; gap: 10px; color: var(--ink); }
+  .audio-checkbox input { width: auto; min-height: auto; margin: 0; }
+  .audio-help { color: var(--muted); }
   .guest-shell { min-height: 100dvh; }
   .guest-brand { max-width: 1280px; margin: auto; padding: 35px 48px 0; }
   .guest-shell main { max-width: 1280px; padding-top: 52px; }
@@ -238,6 +249,7 @@
     .mix-description { min-height: 54px; }
     .admin-panel form { grid-template-columns: 1fr; }
     .admin-panel form button { width: 100%; }
+    .audio-provider-grid, .audio-limit-grid { grid-template-columns: 1fr; }
     .page-footer { font-size: 9px; margin-top: 34px; }
     .guest-brand { padding: 26px 22px 0; }
     .guest-shell main { padding: 26px 18px 0; }

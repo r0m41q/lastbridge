@@ -16,9 +16,11 @@ MIN_TIMEOUT_SECONDS = 5
 class AudioSettings:
     # ``provider`` remains a compatibility alias for callers that used the
     # original single-provider setting. New settings use the explicit roles.
-    provider: Literal["youtube", "jumo"] = "youtube"
-    stream_provider: Literal["youtube", "jumo"] | None = None
-    download_provider: Literal["youtube", "jumo"] | None = None
+    provider: Literal["youtube", "jumo", "rhythmax"] = "youtube"
+    stream_provider: Literal["youtube", "jumo", "rhythmax"] | None = None
+    download_provider: Literal[
+        "youtube", "jumo", "rhythmax"
+    ] | None = None
     policy: Literal["aac", "opus"] = "aac"
     cache_bytes: int = 1_000_000_000
     file_max_bytes: int = 67_108_864
@@ -30,13 +32,13 @@ class AudioSettings:
     jumo_quality: Literal["original", "cd"] = "original"
 
     def __post_init__(self):
-        if self.provider not in ("youtube", "jumo"):
+        if self.provider not in ("youtube", "jumo", "rhythmax"):
             raise ValueError("Select a supported audio provider.")
         stream_provider = self.stream_provider or self.provider
         download_provider = self.download_provider or self.provider
-        if stream_provider not in ("youtube", "jumo"):
+        if stream_provider not in ("youtube", "jumo", "rhythmax"):
             raise ValueError("Select a supported audio provider.")
-        if download_provider not in ("youtube", "jumo"):
+        if download_provider not in ("youtube", "jumo", "rhythmax"):
             raise ValueError("Select a supported audio provider.")
         object.__setattr__(self, "provider", stream_provider)
         object.__setattr__(self, "stream_provider", stream_provider)

@@ -97,6 +97,6 @@ def test_jumo_response_decryption_matches_protocol():
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("provider", ["youtube", "jumo"])
+@pytest.mark.parametrize("provider", ["youtube", "jumo", "rhythmax"])
 def test_jumo_settings_are_valid_for_both_provider_choices(provider):
     assert AudioSettings(provider=provider).provider == provider

@@ -43,6 +43,19 @@ def test_audio_settings_separate_stream_and_download_providers(tmp_path):
     assert repository.snapshot() == settings
 
 
+def test_audio_settings_accepts_rhythmax_provider(tmp_path):
+    accounts = make_accounts(tmp_path)
+    repository = AudioSettingsRepository(accounts.repository.database)
+    settings = AudioSettings(
+        stream_provider="rhythmax",
+        download_provider="rhythmax",
+    )
+
+    repository.save(settings)
+
+    assert repository.snapshot() == settings
+
+
 def test_audio_settings_form_uses_megabytes():
     settings = AudioSettings.from_form(
         {

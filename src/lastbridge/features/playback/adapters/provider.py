@@ -7,15 +7,18 @@ logger = logging.getLogger(__name__)
 
 
 class AudioProvider:
-    def __init__(self, youtube, jumo, settings):
+    def __init__(self, youtube, jumo, settings, rhythmax=None):
         self.youtube = youtube
         self.jumo = jumo
+        self.rhythmax = rhythmax
         self.settings = settings
 
     async def configure(self, settings):
         self.settings = settings
         self.youtube.timeout = settings.timeout_seconds
         await self.jumo.configure(settings)
+        if self.rhythmax is not None:
+            await self.rhythmax.configure(settings)
 
     def for_role(self, role):
         if role not in ("stream", "download"):
@@ -35,7 +38,14 @@ class AudioProvider:
             if role == "stream"
             else self.settings.download_provider
         )
-        provider = self.youtube if provider_name == "youtube" else self.jumo
+        providers = {
+            "youtube": self.youtube,
+            "jumo": self.jumo,
+            "rhythmax": self.rhythmax,
+        }
+        provider = providers.get(provider_name)
+        if provider is None:
+            raise CatalogError(0, "Audio provider unavailable; retry")
         logger.info(
             "Audio provider request started provider=%s role=%s source=%s "
             "policy=%s",
@@ -50,7 +60,7 @@ class AudioProvider:
             )
         except CatalogError as error:
             if (
-                provider_name != "jumo"
+                provider_name == "youtube"
                 or error.message
                 in (
                     "Not enough free space for audio",

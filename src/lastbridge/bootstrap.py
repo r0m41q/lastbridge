@@ -68,6 +68,9 @@ from lastbridge.features.playback.adapters.jumo.provider import (
 from lastbridge.features.playback.adapters.provider import (
     AudioProvider as AudioProviderRouter,
 )
+from lastbridge.features.playback.adapters.rhythmax.provider import (
+    AudioProvider as RhythmaxAudioProvider,
+)
 from lastbridge.features.playback.adapters.sqlite.repository import (
     MediaFileRepository,
 )
@@ -265,6 +268,10 @@ async def bootstrap(
                         settings=audio_settings,
                     ),
                     audio_settings,
+                    rhythmax=RhythmaxAudioProvider(
+                        recording_lookup,
+                        timeout=audio_settings.timeout_seconds,
+                    ),
                 )
             else:
                 provider = selected.audio

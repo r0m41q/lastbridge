@@ -99,54 +99,87 @@
   </section>
   <section class="panel" aria-labelledby="audio-heading">
     <h2 id="audio-heading">Audio providers and limits</h2>
-    <p>Choose providers independently for playback and server downloads. A cached or saved recording can be reused by either role. Deployment ceilings come from environment variables and cannot be exceeded.</p>
-    <form method="post" action="/admin/audio">
+    <p>Choose the source for playback and background downloads separately. A cached or saved recording can be reused by either role. Deployment ceilings come from environment variables and cannot be exceeded.</p>
+    <div class="notice audio-provider-notice">
+      <strong>Quality guide.</strong> Rhythmax uses a public TIDAL Hi-Fi service and requests lossless audio. Lastbridge stores AAC or Opus at a 320 kbps target after validation. YouTube Music remains available, but its source bitrate depends on the recording.
+    </div>
+    <form class="audio-settings-form" method="post" action="/admin/audio">
       {{ csrf(user.csrf) }}
-      <label>Streaming provider
-        <select name="stream_provider">
-          <option value="youtube"{% if audio.stream_provider == 'youtube' %} selected{% endif %}>YouTube Music</option>
-          <option value="jumo"{% if audio.stream_provider == 'jumo' %} selected{% endif %}>Jumo-DL</option>
-        </select>
-      </label>
-      <label>Downloading provider
-        <select name="download_provider">
-          <option value="youtube"{% if audio.download_provider == 'youtube' %} selected{% endif %}>YouTube Music</option>
-          <option value="jumo"{% if audio.download_provider == 'jumo' %} selected{% endif %}>Jumo-DL</option>
-        </select>
-      </label>
-      <label>Use YouTube Music as fallback when Jumo-DL fails
-        <input name="youtube_fallback" type="checkbox" value="yes"{% if audio.youtube_fallback %} checked{% endif %}>
-      </label>
-      <label>Audio format
-        <select name="policy">
-          <option value="aac"{% if audio.policy == 'aac' %} selected{% endif %}>AAC / M4A</option>
-          <option value="opus"{% if audio.policy == 'opus' %} selected{% endif %}>Opus / WebM</option>
-        </select>
-      </label>
-      <label>Provider timeout (seconds)
-        <input name="timeout_seconds" type="number" min="5" max="600" step="1" required value="{{ audio.timeout_seconds }}">
-      </label>
-      <label>Audio cache limit (MB)
-        <input name="cache_mb" type="number" min="2" max="{{ '%.2f'|format(audio_ceilings.cache_mb) }}" step="0.01" required value="{{ mb(audio.cache_bytes) }}">
-      </label>
-      <label>Maximum file size (MB)
-        <input name="file_max_mb" type="number" min="1" max="{{ '%.2f'|format(audio_ceilings.file_max_mb) }}" step="0.01" required value="{{ mb(audio.file_max_bytes) }}">
-      </label>
-      <label>Free-space reserve (MB)
-        <input name="free_reserve_mb" type="number" min="0" max="{{ '%.2f'|format(audio_ceilings.free_reserve_mb) }}" step="0.01" required value="{{ mb(audio.free_reserve_bytes) }}">
-      </label>
-      <label>Jumo-DL URL
-        <input name="jumo_base_url" type="url" required value="{{ audio.jumo_base_url }}">
-      </label>
-      <label>Jumo region
-        <input name="jumo_region" type="text" maxlength="2" pattern="[A-Za-z]{2}" value="{{ audio.jumo_region }}" placeholder="Automatic">
-      </label>
-      <label>Jumo lossless quality
-        <select name="jumo_quality">
-          <option value="original"{% if audio.jumo_quality == 'original' %} selected{% endif %}>Original / hi-res when available</option>
-          <option value="cd"{% if audio.jumo_quality == 'cd' %} selected{% endif %}>CD quality</option>
-        </select>
-      </label>
+      <fieldset class="audio-settings-group">
+        <legend>Provider roles</legend>
+        <div class="audio-provider-grid">
+          <label>Streaming provider
+            <select name="stream_provider">
+              <option value="rhythmax"{% if audio.stream_provider == 'rhythmax' %} selected{% endif %}>Rhythmax · TIDAL lossless</option>
+              <option value="youtube"{% if audio.stream_provider == 'youtube' %} selected{% endif %}>YouTube Music</option>
+              <option value="jumo"{% if audio.stream_provider == 'jumo' %} selected{% endif %}>Jumo-DL · Qobuz</option>
+            </select>
+            <small>Used when a client starts playback.</small>
+          </label>
+          <label>Downloading provider
+            <select name="download_provider">
+              <option value="rhythmax"{% if audio.download_provider == 'rhythmax' %} selected{% endif %}>Rhythmax · TIDAL lossless</option>
+              <option value="youtube"{% if audio.download_provider == 'youtube' %} selected{% endif %}>YouTube Music</option>
+              <option value="jumo"{% if audio.download_provider == 'jumo' %} selected{% endif %}>Jumo-DL · Qobuz</option>
+            </select>
+            <small>Used by saved-library and background downloads.</small>
+          </label>
+        </div>
+        <label class="audio-checkbox">Allow YouTube Music fallback when a public provider is unavailable
+          <input name="youtube_fallback" type="checkbox" value="yes"{% if audio.youtube_fallback %} checked{% endif %}>
+        </label>
+        <small class="audio-help">Fallback is opt-in behavior for Jumo-DL and Rhythmax failures. Public providers can be rate-limited or temporarily offline.</small>
+      </fieldset>
+      <fieldset class="audio-settings-group">
+        <legend>Output and provider deadline</legend>
+        <div class="audio-provider-grid">
+          <label>Audio format
+            <select name="policy">
+              <option value="aac"{% if audio.policy == 'aac' %} selected{% endif %}>AAC / M4A · 320 kbps target</option>
+              <option value="opus"{% if audio.policy == 'opus' %} selected{% endif %}>Opus / WebM · 320 kbps target</option>
+            </select>
+          </label>
+          <label>Provider timeout (seconds)
+            <input name="timeout_seconds" type="number" min="5" max="600" step="1" required value="{{ audio.timeout_seconds }}">
+          </label>
+        </div>
+        <small class="audio-help">Rhythmax requests the lossless tier and transcodes it into the selected server format. YouTube Music is not upscaled when its source is lower.</small>
+      </fieldset>
+      <fieldset class="audio-settings-group">
+        <legend>Storage limits</legend>
+        <div class="audio-limit-grid">
+          <label>Audio cache limit (MB)
+            <input name="cache_mb" type="number" min="2" max="{{ '%.2f'|format(audio_ceilings.cache_mb) }}" step="0.01" required value="{{ mb(audio.cache_bytes) }}">
+            <small>Temporary playback files.</small>
+          </label>
+          <label>Maximum file size (MB)
+            <input name="file_max_mb" type="number" min="1" max="{{ '%.2f'|format(audio_ceilings.file_max_mb) }}" step="0.01" required value="{{ mb(audio.file_max_bytes) }}">
+            <small>Limit for one acquired recording.</small>
+          </label>
+          <label>Free-space reserve (MB)
+            <input name="free_reserve_mb" type="number" min="0" max="{{ '%.2f'|format(audio_ceilings.free_reserve_mb) }}" step="0.01" required value="{{ mb(audio.free_reserve_bytes) }}">
+            <small>Kept free during downloads.</small>
+          </label>
+        </div>
+      </fieldset>
+      <fieldset class="audio-settings-group">
+        <legend>Jumo-DL compatibility</legend>
+        <small class="audio-help">These settings are only used when Jumo-DL is selected. Rhythmax uses its public service defaults and does not require a subscription or stored credentials.</small>
+        <div class="audio-provider-grid">
+          <label>Jumo-DL URL
+            <input name="jumo_base_url" type="url" required value="{{ audio.jumo_base_url }}">
+          </label>
+          <label>Jumo region
+            <input name="jumo_region" type="text" maxlength="2" pattern="[A-Za-z]{2}" value="{{ audio.jumo_region }}" placeholder="Automatic">
+          </label>
+        </div>
+        <label>Jumo lossless quality
+          <select name="jumo_quality">
+            <option value="original"{% if audio.jumo_quality == 'original' %} selected{% endif %}>Original / hi-res when available</option>
+            <option value="cd"{% if audio.jumo_quality == 'cd' %} selected{% endif %}>CD quality</option>
+          </select>
+        </label>
+      </fieldset>
       <button type="submit">Save audio settings</button>
     </form>
   </section>

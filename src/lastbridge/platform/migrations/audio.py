@@ -1,10 +1,10 @@
 SCHEMA = """CREATE TABLE IF NOT EXISTS audio_settings (
     id INTEGER PRIMARY KEY CHECK(id=1),
-    provider TEXT NOT NULL CHECK(provider IN ('youtube','jumo')),
+    provider TEXT NOT NULL CHECK(provider IN ('youtube','jumo','rhythmax')),
     stream_provider TEXT NOT NULL DEFAULT 'youtube'
-        CHECK(stream_provider IN ('youtube','jumo')),
+        CHECK(stream_provider IN ('youtube','jumo','rhythmax')),
     download_provider TEXT NOT NULL DEFAULT 'youtube'
-        CHECK(download_provider IN ('youtube','jumo')),
+        CHECK(download_provider IN ('youtube','jumo','rhythmax')),
     policy TEXT NOT NULL CHECK(policy IN ('aac','opus')),
     cache_bytes INTEGER NOT NULL CHECK(cache_bytes >= 2097152),
     file_max_bytes INTEGER NOT NULL CHECK(file_max_bytes >= 1048576),

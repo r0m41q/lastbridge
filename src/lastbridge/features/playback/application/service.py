@@ -34,8 +34,9 @@ class AudioCache:
         self.ready_notifier = ready_notifier
 
     async def configure(self, settings: AudioConfiguration):
-        if settings.stream_provider not in ("youtube", "jumo") or (
-            settings.download_provider not in ("youtube", "jumo")
+        if settings.stream_provider not in ("youtube", "jumo", "rhythmax") or (
+            settings.download_provider
+            not in ("youtube", "jumo", "rhythmax")
         ):
             raise ValueError("Select a supported audio provider.")
         configure = getattr(self.provider, "configure", None)
