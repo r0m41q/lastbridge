@@ -40,3 +40,11 @@ async def stylesheet():
     return FileResponse(
         Path(__file__).with_name("static") / "style.css", media_type="text/css"
     )
+
+
+@router.get("/assets/favicon.svg", include_in_schema=False)
+async def favicon():
+    return FileResponse(
+        Path(__file__).with_name("static") / "favicon.svg",
+        media_type="image/svg+xml",
+    )

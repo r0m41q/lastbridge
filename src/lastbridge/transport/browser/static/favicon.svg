@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>Lastbridge</title>
+  <g fill="#d3f78a" transform="translate(16 16) rotate(16) translate(-16 -16)">
+    <rect x="6" y="9" width="4" height="14" rx="2"/>
+    <rect x="12" y="3.5" width="4" height="25" rx="2"/>
+    <rect x="18" y="6" width="4" height="20" rx="2"/>
+    <rect x="24" y="11" width="4" height="10" rx="2"/>
+  </g>
+</svg>

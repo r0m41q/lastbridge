@@ -23,6 +23,14 @@ def test_local_styles_load_under_csp_without_script_permissions(service):
     response = client.get("/login")
     assert response.status_code == 200
     tags = Markup(response.text).tags
+    assert (
+        "link",
+        {
+            "rel": "icon",
+            "type": "image/svg+xml",
+            "href": "/assets/favicon.svg",
+        },
+    ) in tags
     assert ("link", {"rel": "stylesheet", "href": "/assets/style.css"}) in tags
     assert not any(tag in {"script", "style"} for tag, _ in tags)
     assert all(not any(k.startswith("on") for k in attrs) for _, attrs in tags)
@@ -37,6 +45,10 @@ def test_local_styles_load_under_csp_without_script_permissions(service):
     assert "prefers-reduced-motion" in css.text
     assert "prefers-color-scheme: light" in css.text
     assert "@import" not in css.text and "url(" not in css.text
+    favicon = client.get("/assets/favicon.svg")
+    assert favicon.status_code == 200
+    assert favicon.headers["content-type"].startswith("image/svg+xml")
+    assert "<title>Lastbridge</title>" in favicon.text
     assert client.get("/assets/../accounts.py").status_code == 404
 
 
