@@ -116,10 +116,7 @@ class AudioCache:
                 entry = self.storage.validate(directory, result)
                 async with self.storage.lock:
                     entry["saved"] = key in self.storage.pins
-                    destination = self.storage.destination(
-                        key, entry["saved"]
-                    )
-                    self.storage.publish(key, directory, entry)
+                    destination = self.storage.publish(key, directory, entry)
         except OSError, ValueError, TypeError, KeyError:
             raise CatalogError(0, "Audio acquisition failed; retry") from None
         finally:

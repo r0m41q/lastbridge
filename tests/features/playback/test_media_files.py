@@ -1,16 +1,22 @@
+import asyncio
+import shutil
 import time
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from support.audio import SOURCE, FakeAudio
 
 from lastbridge.features.playback.adapters.filesystem.metadata import (
     MetadataWriter,
 )
+from lastbridge.features.playback.adapters.filesystem.storage import AudioFiles
+from lastbridge.features.playback.adapters.http.response import AudioResponse
 from lastbridge.features.playback.adapters.sqlite.repository import (
     MediaFileRepository,
 )
 from lastbridge.features.playback.application.media import MediaPlacement
+from lastbridge.features.playback.application.service import AudioCache
 from lastbridge.features.playback.domain.models import (
     MediaDescriptor,
     MediaFile,
@@ -19,15 +25,54 @@ from lastbridge.features.playback.domain.paths import saved_relative_path
 from lastbridge.platform.credentials import Credentials
 from lastbridge.platform.database import Database
 from lastbridge.platform.migrations import migrate
+from lastbridge.shared.errors import CatalogError
 
 
 def make_repository(tmp_path):
     directory = tmp_path / "data"
-    directory.mkdir()
+    directory.mkdir(exist_ok=True)
     credentials = Credentials(directory, directory / "lastbridge.sqlite3")
     database = Database(directory)
     migrate(database, credentials)
     return MediaFileRepository(database), database
+
+
+def make_managed_audio(tmp_path, pins=(), metadata_writer=None):
+    repository, _ = make_repository(tmp_path)
+    descriptors = {
+        SOURCE: MediaDescriptor(
+            source=SOURCE,
+            policy="aac",
+            title="Song",
+            artist="Artist",
+            album="Album",
+            track_number=1,
+        )
+    }
+
+    class CopyMetadata:
+        def write(self, source, destination, descriptor):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination)
+            return destination
+
+    def descriptor_factory(source, policy):
+        return replace(descriptors[source], policy=policy)
+
+    storage = AudioFiles(
+        tmp_path / "cache" / "audio",
+        budget=32768,
+        maximum=8192,
+        reserve=0,
+        policy="aac",
+        saved_directory=tmp_path / "saved" / "audio",
+        pins=pins,
+        media_files=repository,
+        media_placement=MediaPlacement(repository),
+        metadata_writer=metadata_writer or CopyMetadata(),
+        descriptor_factory=descriptor_factory,
+    )
+    return AudioCache(storage, FakeAudio(), AudioResponse), repository
 
 
 def test_media_migration_creates_version_11_table(tmp_path):
@@ -246,3 +291,99 @@ def test_metadata_writer_uses_format_tags_without_transcoding(
     assert f"{tag}=A title" in command
     assert options["check"] is True
     assert options["timeout"] == 60
+
+
+def test_managed_storage_publishes_retained_audio_directly_to_saved_root(
+    tmp_path,
+):
+    async def scenario():
+        key = f"{SOURCE}-aac"
+        audio, repository = make_managed_audio(tmp_path, {key})
+        key, entry = await audio.acquire(SOURCE)
+        saved_path = audio.path(key, entry)
+        record = repository.get(SOURCE, "aac")
+        assert entry["saved"]
+        assert saved_path.relative_to(tmp_path / "saved" / "audio").parts == (
+            "Artist",
+            "Album",
+            "01 - Song [aac].m4a",
+        )
+        assert record.state == "ready"
+        assert record.relative_path == saved_path.relative_to(
+            tmp_path / "saved" / "audio"
+        ).as_posix()
+        assert not list((tmp_path / "cache" / "audio").glob("*.m4a"))
+        await audio.release(key)
+        await audio.close()
+
+    asyncio.run(scenario())
+
+
+def test_managed_promotion_preserves_active_lease_and_unpin_deletes_saved(
+    tmp_path,
+):
+    async def scenario():
+        key = f"{SOURCE}-aac"
+        audio, repository = make_managed_audio(tmp_path)
+        key, entry = await audio.acquire(SOURCE)
+        cache_path = audio.path(key, entry)
+        audio.storage.pins.add(key)
+        assert await audio.retain(key)
+        saved_path = audio.path(key, audio.entries[key])
+        assert saved_path.exists() and cache_path.exists()
+        await audio.release(key)
+        assert saved_path.exists() and not cache_path.exists()
+        await audio.update_pins(set())
+        assert not saved_path.exists()
+        assert repository.get(SOURCE, "aac") is None
+        assert key not in audio.entries
+        await audio.close()
+
+    asyncio.run(scenario())
+
+
+def test_managed_restart_marks_missing_saved_file_and_reacquires_same_path(
+    tmp_path,
+):
+    async def scenario():
+        key = f"{SOURCE}-aac"
+        audio, repository = make_managed_audio(tmp_path, {key})
+        key, entry = await audio.acquire(SOURCE)
+        saved_path = audio.path(key, entry)
+        await audio.release(key)
+        await audio.close()
+        saved_path.unlink()
+
+        replacement, repository = make_managed_audio(tmp_path, {key})
+        assert not replacement.entries
+        assert repository.get(SOURCE, "aac").state == "missing"
+        key, entry = await replacement.acquire(SOURCE)
+        assert entry["saved"]
+        assert replacement.path(key, entry) == saved_path
+        assert repository.get(SOURCE, "aac").state == "ready"
+        await replacement.release(key)
+        await replacement.close()
+
+    asyncio.run(scenario())
+
+
+def test_managed_publication_failure_leaves_retryable_media_record(tmp_path):
+    async def scenario():
+        key = f"{SOURCE}-aac"
+
+        class FullDisk:
+            def write(self, source, destination, descriptor):
+                raise OSError("disk full")
+
+        audio, repository = make_managed_audio(
+            tmp_path, {key}, metadata_writer=FullDisk()
+        )
+        with pytest.raises(CatalogError, match="acquisition failed"):
+            await audio.acquire(SOURCE)
+        record = repository.get(SOURCE, "aac")
+        assert record.state == "pending"
+        assert not audio.entries
+        assert not list((tmp_path / "saved" / "audio").rglob("*.m4a"))
+        await audio.close()
+
+    asyncio.run(scenario())

@@ -3,6 +3,7 @@ from typing import Protocol
 
 class CatalogStore(Protocol):
     def read(self, item_id: str, kind: str | None = None) -> dict: ...
+    def read_source(self, source: str, kind: str) -> dict: ...
 
     def put(
         self, kind, source, document, image=None, complete=False
