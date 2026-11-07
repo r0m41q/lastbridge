@@ -36,6 +36,75 @@ def test_admin_can_view_dashboard_before_lastfm_link(service):
     assert "<script" not in response.text
 
 
+def test_admin_can_update_audio_settings(service):
+    client, app, _ = service
+    login(client)
+    token = csrf(client.get("/admin"))
+    values = {
+        "csrf": token,
+        "provider": "youtube",
+        "youtube_fallback": "yes",
+        "policy": "opus",
+        "cache_bytes": str(16 * 1024 * 1024),
+        "file_max_bytes": str(4 * 1024 * 1024),
+        "free_reserve_bytes": str(2 * 1024 * 1024),
+        "timeout_seconds": "45",
+        "jumo_base_url": "https://jumo-dl.pages.dev",
+        "jumo_region": "",
+        "jumo_quality": "original",
+    }
+
+    response = client.post("/admin/audio", data=values, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert app.state.services.audio.storage.policy == "opus"
+    assert app.state.services.audio.storage.budget == 16 * 1024 * 1024
+    assert app.state.services.audio.storage.maximum == 4 * 1024 * 1024
+    assert app.state.services.library.policy == "opus"
+    assert (
+        app.state.services.administration.audio_settings.snapshot().as_dict()
+        == {
+            "provider": "youtube",
+            "policy": "opus",
+            "cache_bytes": 16 * 1024 * 1024,
+            "file_max_bytes": 4 * 1024 * 1024,
+            "free_reserve_bytes": 2 * 1024 * 1024,
+            "timeout_seconds": 45,
+            "youtube_fallback": True,
+            "jumo_base_url": "https://jumo-dl.pages.dev",
+            "jumo_region": "",
+            "jumo_quality": "original",
+        }
+    )
+
+
+def test_invalid_audio_settings_are_not_saved(service):
+    client, app, _ = service
+    login(client)
+    token = csrf(client.get("/admin"))
+    values = {
+        "csrf": token,
+        "provider": "youtube",
+        "policy": "opus",
+        "cache_bytes": str(4 * 1024 * 1024),
+        "file_max_bytes": str(4 * 1024 * 1024),
+        "free_reserve_bytes": "0",
+        "timeout_seconds": "45",
+        "jumo_base_url": "https://jumo-dl.pages.dev",
+        "jumo_region": "",
+        "jumo_quality": "original",
+    }
+
+    response = client.post("/admin/audio", data=values)
+
+    assert response.status_code == 409
+    assert app.state.services.audio.storage.policy == "aac"
+    assert (
+        app.state.services.administration.audio_settings.snapshot().policy
+        == "aac"
+    )
+
+
 @pytest.mark.parametrize("action", ["downloads", "password", "mixes", "pause"])
 def test_normal_user_cannot_operate_admin_controls(service, action):
     client = service[0]
@@ -52,7 +121,12 @@ def test_normal_user_cannot_operate_admin_controls(service, action):
 
 
 @pytest.mark.parametrize(
-    "path", ["/admin/users/2/downloads", "/admin/charts/example/retry"]
+    "path",
+    [
+        "/admin/users/2/downloads",
+        "/admin/charts/example/retry",
+        "/admin/audio",
+    ],
 )
 def test_admin_actions_require_csrf_and_same_origin(service, path):
     client = service[0]

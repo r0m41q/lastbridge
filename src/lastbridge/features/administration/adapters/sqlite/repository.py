@@ -1,4 +1,6 @@
-"""Administrator read model. Writes stay with each feature's service."""
+"""Administrator read model and administrator-owned settings storage."""
+
+from lastbridge.features.administration.domain.audio import AudioSettings
 
 
 class DashboardRepository:
@@ -99,3 +101,43 @@ class DashboardRepository:
             "job_counts": job_counts,
             "charts": charts,
         }
+
+
+class AudioSettingsRepository:
+    def __init__(self, database):
+        self.database = database
+
+    def snapshot(self) -> AudioSettings:
+        with self.database.connection() as connection:
+            row = connection.execute(
+                "SELECT provider,policy,cache_bytes,file_max_bytes,"
+                "free_reserve_bytes,timeout_seconds,youtube_fallback,"
+                "jumo_base_url,jumo_region,jumo_quality FROM audio_settings "
+                "WHERE id=1"
+            ).fetchone()
+        if row is None:
+            raise RuntimeError("Audio settings are missing")
+        values = dict(row)
+        values["youtube_fallback"] = bool(values["youtube_fallback"])
+        return AudioSettings(**values)
+
+    def save(self, settings: AudioSettings) -> None:
+        with self.database.transaction() as connection:
+            connection.execute(
+                "UPDATE audio_settings SET provider=?,policy=?,"
+                "cache_bytes=?,file_max_bytes=?,free_reserve_bytes=?,"
+                "timeout_seconds=?,youtube_fallback=?,jumo_base_url=?,"
+                "jumo_region=?,jumo_quality=? WHERE id=1",
+                (
+                    settings.provider,
+                    settings.policy,
+                    settings.cache_bytes,
+                    settings.file_max_bytes,
+                    settings.free_reserve_bytes,
+                    settings.timeout_seconds,
+                    int(settings.youtube_fallback),
+                    settings.jumo_base_url,
+                    settings.jumo_region,
+                    settings.jumo_quality,
+                ),
+            )

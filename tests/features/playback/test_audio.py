@@ -15,6 +15,7 @@ from support.audio import (
 )
 from support.catalog import body, get, search
 
+from lastbridge.features.administration.domain.audio import AudioSettings
 from lastbridge.features.playback.adapters.youtube.provider import (
     AudioProvider,
 )
@@ -385,6 +386,29 @@ def test_source_format_policy_does_not_compare_bitrates_across_codecs():
     assert choose_format([aac, opus], "opus") == opus
     with pytest.raises(ProviderError, match="no_audio_format"):
         choose_format([opus], "aac")
+
+
+def test_audio_cache_applies_administrator_settings(tmp_path):
+    async def scenario():
+        audio = cache_at(tmp_path)
+        audio.provider.timeout = 180
+        await audio.configure(
+            AudioSettings(
+                policy="opus",
+                cache_bytes=16 * 1024 * 1024,
+                file_max_bytes=4 * 1024 * 1024,
+                free_reserve_bytes=2 * 1024 * 1024,
+                timeout_seconds=45,
+            )
+        )
+        assert audio.storage.policy == "opus"
+        assert audio.storage.budget == 16 * 1024 * 1024
+        assert audio.storage.maximum == 4 * 1024 * 1024
+        assert audio.storage.reserve == 2 * 1024 * 1024
+        assert audio.provider.timeout == 45
+        await audio.close()
+
+    asyncio.run(scenario())
 
 
 def test_worker_full_track_download_and_validation(tmp_path, monkeypatch):

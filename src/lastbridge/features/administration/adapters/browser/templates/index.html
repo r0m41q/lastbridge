@@ -6,6 +6,53 @@
 {%- endmacro %}
 {% block content %}
 <div class="dashboard">
+  <section class="panel" aria-labelledby="audio-heading">
+    <h2 id="audio-heading">Audio provider</h2>
+    <p>The provider and download limits are stored in Lastbridge and can be changed here. Deployment ceilings come from environment variables and cannot be exceeded.</p>
+    <form method="post" action="/admin/audio">
+      {{ csrf(user.csrf) }}
+      <label>Provider
+        <select name="provider">
+          <option value="youtube"{% if audio.provider == 'youtube' %} selected{% endif %}>YouTube Music</option>
+          <option value="jumo"{% if audio.provider == 'jumo' %} selected{% endif %}>Jumo-DL</option>
+        </select>
+      </label>
+      <label>Use YouTube Music as fallback when Jumo-DL fails
+        <input name="youtube_fallback" type="checkbox" value="yes"{% if audio.youtube_fallback %} checked{% endif %}>
+      </label>
+      <label>Audio format
+        <select name="policy">
+          <option value="aac"{% if audio.policy == 'aac' %} selected{% endif %}>AAC / M4A</option>
+          <option value="opus"{% if audio.policy == 'opus' %} selected{% endif %}>Opus / WebM</option>
+        </select>
+      </label>
+      <label>Provider timeout (seconds)
+        <input name="timeout_seconds" type="number" min="5" max="600" step="1" required value="{{ audio.timeout_seconds }}">
+      </label>
+      <label>Audio cache limit (bytes)
+        <input name="cache_bytes" type="number" min="2097152" max="{{ audio_ceilings.cache_bytes }}" step="1" required value="{{ audio.cache_bytes }}">
+      </label>
+      <label>Maximum file size (bytes)
+        <input name="file_max_bytes" type="number" min="1048576" max="{{ audio_ceilings.file_max_bytes }}" step="1" required value="{{ audio.file_max_bytes }}">
+      </label>
+      <label>Free-space reserve (bytes)
+        <input name="free_reserve_bytes" type="number" min="0" max="{{ audio_ceilings.free_reserve_bytes }}" step="1" required value="{{ audio.free_reserve_bytes }}">
+      </label>
+      <label>Jumo-DL URL
+        <input name="jumo_base_url" type="url" required value="{{ audio.jumo_base_url }}">
+      </label>
+      <label>Jumo region
+        <input name="jumo_region" type="text" maxlength="2" pattern="[A-Za-z]{2}" value="{{ audio.jumo_region }}" placeholder="Automatic">
+      </label>
+      <label>Jumo lossless quality
+        <select name="jumo_quality">
+          <option value="original"{% if audio.jumo_quality == 'original' %} selected{% endif %}>Original / hi-res when available</option>
+          <option value="cd"{% if audio.jumo_quality == 'cd' %} selected{% endif %}>CD quality</option>
+        </select>
+      </label>
+      <button type="submit">Save audio settings</button>
+    </form>
+  </section>
   <section aria-labelledby="storage-heading">
     <h2 id="storage-heading">Storage</h2>
     {% if storage.low_space %}<p class="notice" role="status">Low disk space. New downloads may fail.</p>{% endif %}

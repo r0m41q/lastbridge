@@ -16,6 +16,7 @@ from lastbridge.features.administration.adapters.filesystem.usage import (
     StorageUsage,
 )
 from lastbridge.features.administration.adapters.sqlite.repository import (
+    AudioSettingsRepository,
     DashboardRepository,
 )
 from lastbridge.features.administration.application.service import (
@@ -60,6 +61,12 @@ from lastbridge.features.playback.adapters.filesystem.storage import AudioFiles
 from lastbridge.features.playback.adapters.http.response import AudioResponse
 from lastbridge.features.playback.adapters.jellyfin.notifier import (
     JellyfinScanNotifier,
+)
+from lastbridge.features.playback.adapters.jumo.provider import (
+    AudioProvider as JumoAudioProvider,
+)
+from lastbridge.features.playback.adapters.provider import (
+    AudioProvider as AudioProviderRouter,
 )
 from lastbridge.features.playback.adapters.sqlite.repository import (
     MediaFileRepository,
@@ -179,6 +186,16 @@ async def bootstrap(
             database, credentials, accounts = await run_in_threadpool(
                 account_storage, config
             )
+            audio_settings_repository = AudioSettingsRepository(database)
+            audio_settings = (
+                audio_settings_repository.snapshot().within_ceilings(
+                    (
+                        config.audio_cache_bytes,
+                        config.audio_file_max_bytes,
+                        config.audio_free_reserve_bytes,
+                    )
+                )
+            )
             repository = CatalogRepository(database, client_document)
             catalog = Catalog(
                 repository,
@@ -189,9 +206,9 @@ async def bootstrap(
                 ArtworkLookup(repository),
             )
             library = Library(
-                LibraryRepository(database, config.audio_policy),
+                LibraryRepository(database, audio_settings.policy),
                 catalog,
-                config.audio_policy,
+                audio_settings.policy,
             )
             lastfm = Lastfm(
                 config.lastfm_api_key.get_secret_value(),
@@ -224,10 +241,10 @@ async def bootstrap(
                     )
             storage = AudioFiles(
                 config.data_dir / "cache" / "audio",
-                budget=config.audio_cache_bytes,
-                maximum=config.audio_file_max_bytes,
-                reserve=config.audio_free_reserve_bytes,
-                policy=config.audio_policy,
+                budget=audio_settings.cache_bytes,
+                maximum=audio_settings.file_max_bytes,
+                reserve=audio_settings.free_reserve_bytes,
+                policy=audio_settings.policy,
                 saved_directory=config.data_dir / "saved" / "audio",
                 pins=library.pins(),
                 media_files=media_files,
@@ -235,11 +252,25 @@ async def bootstrap(
                 metadata_writer=metadata_writer,
                 descriptor_factory=descriptor_factory,
             )
+            if selected.audio is None:
+
+                def recording_lookup(source):
+                    return catalog.read_source(source, "song")["document"]
+
+                provider = AudioProviderRouter(
+                    AudioProvider(timeout=audio_settings.timeout_seconds),
+                    JumoAudioProvider(
+                        recording_lookup,
+                        timeout=audio_settings.timeout_seconds,
+                        settings=audio_settings,
+                    ),
+                    audio_settings,
+                )
+            else:
+                provider = selected.audio
             audio = AudioCache(
                 storage,
-                selected.audio
-                if selected.audio is not None
-                else AudioProvider(),
+                provider,
                 AudioResponse,
                 ready_notifier,
             )
@@ -248,6 +279,15 @@ async def bootstrap(
         resources.push_async_callback(audio.close)
         resources.push_async_callback(library.close)
         await library.start(audio, worker=start_workers)
+
+        dashboard = DashboardRepository(database, audio_settings.policy)
+
+        async def configure_audio(settings):
+            await audio.configure(settings)
+            library.policy = settings.policy
+            library.repository.policy = settings.policy
+            dashboard.policy = settings.policy
+            await library.reconcile()
 
         client = await resources.enter_async_context(
             httpx.AsyncClient(
@@ -321,11 +361,18 @@ async def bootstrap(
             playlists=playlists,
             password_limit=asyncio.Semaphore(2),
             administration=Administration(
-                DashboardRepository(database, config.audio_policy),
+                dashboard,
                 StorageUsage(storage),
                 downloads=library.retry,
                 mixes=mixes.request,
                 sync=sync.control,
                 charts=imports.retry_shared,
+                audio_settings=audio_settings_repository,
+                configure_audio=configure_audio,
+                audio_ceilings=(
+                    config.audio_cache_bytes,
+                    config.audio_file_max_bytes,
+                    config.audio_free_reserve_bytes,
+                ),
             ),
         )

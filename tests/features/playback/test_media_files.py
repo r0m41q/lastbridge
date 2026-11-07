@@ -89,12 +89,12 @@ def make_managed_audio(
     )
 
 
-def test_media_migration_creates_version_11_table(tmp_path):
+def test_media_migration_creates_version_13_table(tmp_path):
     repository, database = make_repository(tmp_path)
     with database.connection() as connection:
         assert connection.execute(
             "PRAGMA user_version"
-        ).fetchone()[0] == 11
+        ).fetchone()[0] == 13
         columns = {
             row["name"]
             for row in connection.execute("PRAGMA table_info(media_files)")

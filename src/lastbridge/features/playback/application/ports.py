@@ -22,6 +22,19 @@ class AudioProvider(Protocol):
     ) -> dict: ...
 
 
+class AudioConfiguration(Protocol):
+    provider: str
+    policy: str
+    cache_bytes: int
+    file_max_bytes: int
+    free_reserve_bytes: int
+    timeout_seconds: int
+    youtube_fallback: bool
+    jumo_base_url: str
+    jumo_region: str
+    jumo_quality: str
+
+
 class ReadyNotifier(Protocol):
     async def notify(self): ...
     async def close(self): ...

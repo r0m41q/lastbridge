@@ -23,10 +23,11 @@ class Settings(BaseSettings):
     )
     data_dir: Path = Path("data")
     public_url: str = "http://127.0.0.1:5274"
-    audio_cache_bytes: int = Field(default=1_000_000_000, ge=1_048_576)
+    # These are deployment ceilings. The Administrator may choose lower
+    # runtime values in the web UI, but never higher ones.
+    audio_cache_bytes: int = Field(default=1_000_000_000, ge=2_097_152)
     audio_file_max_bytes: int = Field(default=67_108_864, ge=1_048_576)
     audio_free_reserve_bytes: int = Field(default=268_435_456, ge=0)
-    audio_policy: Literal["aac", "opus"] = "aac"
     mix_refresh_hours: int = Field(default=24, ge=1, le=8760)
     mix_inactive_days: int = Field(default=7, ge=1, le=3650)
     lastfm_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
@@ -75,9 +76,7 @@ class Settings(BaseSettings):
         if bool(self.jellyfin_scan_url) != bool(
             self.jellyfin_api_key.get_secret_value()
         ):
-            raise ValueError(
-                "Set both Jellyfin scan URL and Jellyfin API key"
-            )
+            raise ValueError("Set both Jellyfin scan URL and Jellyfin API key")
         return self
 
     @field_validator("public_url")
