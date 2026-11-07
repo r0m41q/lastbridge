@@ -31,8 +31,11 @@ class AudioCache:
         self.ready_notifier = ready_notifier
 
     async def configure(self, settings: AudioConfiguration):
-        if settings.provider != "youtube":
+        if settings.provider not in ("youtube", "jumo"):
             raise ValueError("Select a supported audio provider.")
+        configure = getattr(self.provider, "configure", None)
+        if configure is not None:
+            await configure(settings)
         async with self.storage.lock:
             self.storage.budget = settings.cache_bytes
             self.storage.maximum = min(
@@ -41,7 +44,7 @@ class AudioCache:
             self.storage.allowance = 2 * self.storage.maximum
             self.storage.reserve = settings.free_reserve_bytes
             self.storage.policy = settings.policy
-            if hasattr(self.provider, "timeout"):
+            if configure is None and hasattr(self.provider, "timeout"):
                 self.provider.timeout = settings.timeout_seconds
 
     @property

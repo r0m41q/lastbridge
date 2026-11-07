@@ -59,13 +59,13 @@ users, saved storage, cache and disk usage, and job progress with retry controls
 
 ## Configuration and updates
 
-See [.env.example](.env.example) for deployment settings. Audio provider,
-format, timeout, cache, file-size, and free-space settings are managed by an
-Administrator from **Administration** and stored in the Lastbridge database;
-they are not configured through environment variables. Defaults include a
-shared 1 GB playback cache, AAC audio, and personal mix refreshes 24 hours after
-the last successful refresh. Automatic mix refresh pauses after 7 days of user
-inactivity.
+See [.env.example](.env.example) for deployment settings. The audio size
+environment variables are absolute ceilings; the Administrator chooses equal or
+lower runtime values from **Administration**. Provider, format, timeout, cache,
+file-size, free-space, Jumo URL, region, and quality settings are stored in the
+Lastbridge database. YouTube Music remains the default provider and Jumo-DL can
+use it as a fallback. Defaults include a shared 1 GB playback cache, AAC audio,
+and personal mix refreshes 24 hours after the last successful refresh.
 
 Favorites and playlists marked **Keep downloaded** retain audio outside the cache
 limit. Ordinary playlists store metadata only. Linking Last.fm automatically

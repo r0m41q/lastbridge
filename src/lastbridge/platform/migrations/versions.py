@@ -45,7 +45,7 @@ SCHEMA = (
 def migrate(database, credentials):
     with database.transaction() as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 12:
+        if version > 13:
             raise RuntimeError("Database is newer than this application")
         if version == 0:
             for statement in SCHEMA:
@@ -127,10 +127,32 @@ def migrate(database, credentials):
         if version < 12:
             connection.execute(AUDIO_SCHEMA)
             connection.execute(
-                "INSERT OR IGNORE INTO audio_settings VALUES(?,?,?,?,?,?,?)",
+                "INSERT OR IGNORE INTO audio_settings "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 AUDIO_DEFAULTS,
             )
             connection.execute("PRAGMA user_version=12")
+        if version < 13:
+            columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(audio_settings)"
+                )
+            }
+            if "youtube_fallback" not in columns:
+                connection.execute(
+                    "ALTER TABLE audio_settings RENAME TO audio_settings_old"
+                )
+                connection.execute(AUDIO_SCHEMA)
+                connection.execute(
+                    "INSERT INTO audio_settings "
+                    "SELECT id,provider,policy,cache_bytes,file_max_bytes,"
+                    "free_reserve_bytes,timeout_seconds,1,"
+                    "'https://jumo-dl.pages.dev','','original' "
+                    "FROM audio_settings_old"
+                )
+                connection.execute("DROP TABLE audio_settings_old")
+            connection.execute("PRAGMA user_version=13")
         check = connection.execute(
             "SELECT value FROM credential_check"
         ).fetchone()[0]

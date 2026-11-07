@@ -43,11 +43,15 @@ def test_admin_can_update_audio_settings(service):
     values = {
         "csrf": token,
         "provider": "youtube",
+        "youtube_fallback": "yes",
         "policy": "opus",
         "cache_bytes": str(16 * 1024 * 1024),
         "file_max_bytes": str(4 * 1024 * 1024),
         "free_reserve_bytes": str(2 * 1024 * 1024),
         "timeout_seconds": "45",
+        "jumo_base_url": "https://jumo-dl.pages.dev",
+        "jumo_region": "",
+        "jumo_quality": "original",
     }
 
     response = client.post("/admin/audio", data=values, follow_redirects=False)
@@ -66,6 +70,10 @@ def test_admin_can_update_audio_settings(service):
             "file_max_bytes": 4 * 1024 * 1024,
             "free_reserve_bytes": 2 * 1024 * 1024,
             "timeout_seconds": 45,
+            "youtube_fallback": True,
+            "jumo_base_url": "https://jumo-dl.pages.dev",
+            "jumo_region": "",
+            "jumo_quality": "original",
         }
     )
 
@@ -82,6 +90,9 @@ def test_invalid_audio_settings_are_not_saved(service):
         "file_max_bytes": str(4 * 1024 * 1024),
         "free_reserve_bytes": "0",
         "timeout_seconds": "45",
+        "jumo_base_url": "https://jumo-dl.pages.dev",
+        "jumo_region": "",
+        "jumo_quality": "original",
     }
 
     response = client.post("/admin/audio", data=values)

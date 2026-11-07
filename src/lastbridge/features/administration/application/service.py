@@ -23,12 +23,14 @@ class Administration:
         charts: Callable[[str], None],
         audio_settings: AudioSettingsStore,
         configure_audio: Callable[[AudioSettings], Awaitable[None]],
+        audio_ceilings: tuple[int, int, int],
     ):
         self.repository, self.storage = repository, storage
         self.downloads, self.mixes = downloads, mixes
         self.sync, self.charts = sync, charts
         self.audio_settings = audio_settings
         self.configure_audio = configure_audio
+        self.audio_ceilings = audio_ceilings
 
     async def dashboard(self):
         usage = await self.storage.snapshot()
@@ -40,13 +42,22 @@ class Administration:
             usage.pop("policy"),
         )
         return report | {
-            "audio": self.audio_settings.snapshot().as_dict(),
+            "audio": self.audio_settings.snapshot()
+            .within_ceilings(self.audio_ceilings)
+            .as_dict(),
+            "audio_ceilings": {
+                "cache_bytes": self.audio_ceilings[0],
+                "file_max_bytes": self.audio_ceilings[1],
+                "free_reserve_bytes": self.audio_ceilings[2],
+            },
             "storage": usage | totals,
         }
 
     async def update_audio(self, values):
-        previous = self.audio_settings.snapshot()
-        settings = AudioSettings.from_form(values)
+        previous = self.audio_settings.snapshot().within_ceilings(
+            self.audio_ceilings
+        )
+        settings = AudioSettings.from_form(values, self.audio_ceilings)
         self.audio_settings.save(settings)
         try:
             await self.configure_audio(settings)

@@ -29,6 +29,10 @@ class AudioConfiguration(Protocol):
     file_max_bytes: int
     free_reserve_bytes: int
     timeout_seconds: int
+    youtube_fallback: bool
+    jumo_base_url: str
+    jumo_region: str
+    jumo_quality: str
 
 
 class ReadyNotifier(Protocol):

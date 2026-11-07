@@ -62,6 +62,12 @@ from lastbridge.features.playback.adapters.http.response import AudioResponse
 from lastbridge.features.playback.adapters.jellyfin.notifier import (
     JellyfinScanNotifier,
 )
+from lastbridge.features.playback.adapters.jumo.provider import (
+    AudioProvider as JumoAudioProvider,
+)
+from lastbridge.features.playback.adapters.provider import (
+    AudioProvider as AudioProviderRouter,
+)
 from lastbridge.features.playback.adapters.sqlite.repository import (
     MediaFileRepository,
 )
@@ -181,7 +187,15 @@ async def bootstrap(
                 account_storage, config
             )
             audio_settings_repository = AudioSettingsRepository(database)
-            audio_settings = audio_settings_repository.snapshot()
+            audio_settings = (
+                audio_settings_repository.snapshot().within_ceilings(
+                    (
+                        config.audio_cache_bytes,
+                        config.audio_file_max_bytes,
+                        config.audio_free_reserve_bytes,
+                    )
+                )
+            )
             repository = CatalogRepository(database, client_document)
             catalog = Catalog(
                 repository,
@@ -238,11 +252,25 @@ async def bootstrap(
                 metadata_writer=metadata_writer,
                 descriptor_factory=descriptor_factory,
             )
+            if selected.audio is None:
+
+                def recording_lookup(source):
+                    return catalog.read_source(source, "song")["document"]
+
+                provider = AudioProviderRouter(
+                    AudioProvider(timeout=audio_settings.timeout_seconds),
+                    JumoAudioProvider(
+                        recording_lookup,
+                        timeout=audio_settings.timeout_seconds,
+                        settings=audio_settings,
+                    ),
+                    audio_settings,
+                )
+            else:
+                provider = selected.audio
             audio = AudioCache(
                 storage,
-                selected.audio
-                if selected.audio is not None
-                else AudioProvider(timeout=audio_settings.timeout_seconds),
+                provider,
                 AudioResponse,
                 ready_notifier,
             )
@@ -341,5 +369,10 @@ async def bootstrap(
                 charts=imports.retry_shared,
                 audio_settings=audio_settings_repository,
                 configure_audio=configure_audio,
+                audio_ceilings=(
+                    config.audio_cache_bytes,
+                    config.audio_file_max_bytes,
+                    config.audio_free_reserve_bytes,
+                ),
             ),
         )

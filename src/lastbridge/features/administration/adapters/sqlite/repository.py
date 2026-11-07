@@ -111,19 +111,23 @@ class AudioSettingsRepository:
         with self.database.connection() as connection:
             row = connection.execute(
                 "SELECT provider,policy,cache_bytes,file_max_bytes,"
-                "free_reserve_bytes,timeout_seconds FROM audio_settings "
+                "free_reserve_bytes,timeout_seconds,youtube_fallback,"
+                "jumo_base_url,jumo_region,jumo_quality FROM audio_settings "
                 "WHERE id=1"
             ).fetchone()
         if row is None:
             raise RuntimeError("Audio settings are missing")
-        return AudioSettings(**dict(row))
+        values = dict(row)
+        values["youtube_fallback"] = bool(values["youtube_fallback"])
+        return AudioSettings(**values)
 
     def save(self, settings: AudioSettings) -> None:
         with self.database.transaction() as connection:
             connection.execute(
                 "UPDATE audio_settings SET provider=?,policy=?,"
                 "cache_bytes=?,file_max_bytes=?,free_reserve_bytes=?,"
-                "timeout_seconds=? WHERE id=1",
+                "timeout_seconds=?,youtube_fallback=?,jumo_base_url=?,"
+                "jumo_region=?,jumo_quality=? WHERE id=1",
                 (
                     settings.provider,
                     settings.policy,
@@ -131,5 +135,9 @@ class AudioSettingsRepository:
                     settings.file_max_bytes,
                     settings.free_reserve_bytes,
                     settings.timeout_seconds,
+                    int(settings.youtube_fallback),
+                    settings.jumo_base_url,
+                    settings.jumo_region,
+                    settings.jumo_quality,
                 ),
             )
