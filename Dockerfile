@@ -30,7 +30,8 @@ FROM base AS media-builder
 # corresponding source archives and license in the runtime for redistribution.
 RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
-    && apt-get install -y --no-install-recommends build-essential pkg-config xz-utils
+    && apt-get install -y --no-install-recommends \
+       build-essential libopus-dev pkg-config xz-utils
 
 WORKDIR /build
 RUN apt-get source ffmpeg=7:7.1.5-0+deb13u1 \
@@ -40,10 +41,10 @@ RUN apt-get source ffmpeg=7:7.1.5-0+deb13u1 \
        --disable-x86asm --disable-avdevice --disable-swscale --disable-postproc \
        --enable-small --enable-ffmpeg --enable-ffprobe \
        --enable-avcodec --enable-avformat --enable-avfilter --enable-swresample \
-       --enable-protocol=file --enable-demuxer=mov,matroska \
-       --enable-decoder=aac,opus --enable-parser=aac,opus \
-       --enable-muxer=null,mp4 --enable-bsf=aac_adtstoasc \
-       --enable-encoder=pcm_s16le \
+       --enable-protocol=file --enable-demuxer=flac,mov,matroska \
+       --enable-decoder=aac,flac,opus --enable-parser=aac,flac,opus \
+       --enable-muxer=null,mp4,webm --enable-bsf=aac_adtstoasc \
+       --enable-libopus --enable-encoder=aac,libopus,pcm_s16le \
        --enable-filter=aresample,aformat,anull \
     && make -j2 ffmpeg ffprobe \
     && install -Dm755 ffmpeg /media/bin/ffmpeg \
