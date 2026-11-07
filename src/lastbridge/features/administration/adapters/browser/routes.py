@@ -74,6 +74,33 @@ async def user_action(request: Request, user_id: int, action: str):
     return RedirectResponse("/admin", status_code=303)
 
 
+@router.post("/admin/audio")
+async def update_audio(request: Request):
+    user, values = await protected_form(request)
+    administrator(user)
+    try:
+        await services(request).administration.update_audio(values)
+    except ValueError as error:
+        return message(
+            Page("Audio settings not saved"),
+            str(error),
+            409,
+            user=user,
+            back_url="/admin",
+            back_label="Back to administration",
+        )
+    except StorageError:
+        return message(
+            Page("Audio settings not saved"),
+            "Storage unavailable; try again.",
+            503,
+            user=user,
+            back_url="/admin",
+            back_label="Back to administration",
+        )
+    return RedirectResponse("/admin", status_code=303)
+
+
 @router.post("/admin/charts/{item_id}/retry")
 async def retry_chart(request: Request, item_id: str):
     user, _ = await protected_form(request)

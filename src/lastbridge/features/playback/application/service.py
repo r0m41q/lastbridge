@@ -5,6 +5,7 @@ import time
 import anyio
 
 from lastbridge.features.playback.application.ports import (
+    AudioConfiguration,
     AudioProvider,
     AudioStorage,
     ReadyNotifier,
@@ -29,6 +30,20 @@ class AudioCache:
         self.response_factory = response_factory
         self.ready_notifier = ready_notifier
 
+    async def configure(self, settings: AudioConfiguration):
+        if settings.provider != "youtube":
+            raise ValueError("Select a supported audio provider.")
+        async with self.storage.lock:
+            self.storage.budget = settings.cache_bytes
+            self.storage.maximum = min(
+                settings.file_max_bytes, settings.cache_bytes // 2
+            )
+            self.storage.allowance = 2 * self.storage.maximum
+            self.storage.reserve = settings.free_reserve_bytes
+            self.storage.policy = settings.policy
+            if hasattr(self.provider, "timeout"):
+                self.provider.timeout = settings.timeout_seconds
+
     @property
     def entries(self):
         return self.storage.entries
@@ -47,6 +62,7 @@ class AudioCache:
             for key, entry in list(self.storage.entries.items()):
                 if (
                     entry.get("saved")
+                    and entry.get("policy") == self.storage.policy
                     and key not in self.storage.pins
                     and not self.storage.leases[key]
                 ):

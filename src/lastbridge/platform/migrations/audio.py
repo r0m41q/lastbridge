@@ -1,0 +1,19 @@
+SCHEMA = """CREATE TABLE IF NOT EXISTS audio_settings (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    provider TEXT NOT NULL CHECK(provider IN ('youtube')),
+    policy TEXT NOT NULL CHECK(policy IN ('aac','opus')),
+    cache_bytes INTEGER NOT NULL CHECK(cache_bytes >= 2097152),
+    file_max_bytes INTEGER NOT NULL CHECK(file_max_bytes >= 1048576),
+    free_reserve_bytes INTEGER NOT NULL CHECK(free_reserve_bytes >= 0),
+    timeout_seconds INTEGER NOT NULL CHECK(timeout_seconds BETWEEN 5 AND 600)
+)"""
+
+DEFAULTS = (
+    1,
+    "youtube",
+    "aac",
+    1_000_000_000,
+    67_108_864,
+    268_435_456,
+    180,
+)

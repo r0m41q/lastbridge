@@ -6,6 +6,37 @@
 {%- endmacro %}
 {% block content %}
 <div class="dashboard">
+  <section class="panel" aria-labelledby="audio-heading">
+    <h2 id="audio-heading">Audio provider</h2>
+    <p>The provider and download limits are stored in Lastbridge and can be changed here. No audio-provider environment variables are required.</p>
+    <form method="post" action="/admin/audio">
+      {{ csrf(user.csrf) }}
+      <label>Provider
+        <select name="provider">
+          <option value="youtube"{% if audio.provider == 'youtube' %} selected{% endif %}>YouTube Music</option>
+        </select>
+      </label>
+      <label>Audio format
+        <select name="policy">
+          <option value="aac"{% if audio.policy == 'aac' %} selected{% endif %}>AAC / M4A</option>
+          <option value="opus"{% if audio.policy == 'opus' %} selected{% endif %}>Opus / WebM</option>
+        </select>
+      </label>
+      <label>Provider timeout (seconds)
+        <input name="timeout_seconds" type="number" min="5" max="600" step="1" required value="{{ audio.timeout_seconds }}">
+      </label>
+      <label>Audio cache limit (bytes)
+        <input name="cache_bytes" type="number" min="2097152" step="1" required value="{{ audio.cache_bytes }}">
+      </label>
+      <label>Maximum file size (bytes)
+        <input name="file_max_bytes" type="number" min="1048576" step="1" required value="{{ audio.file_max_bytes }}">
+      </label>
+      <label>Free-space reserve (bytes)
+        <input name="free_reserve_bytes" type="number" min="0" step="1" required value="{{ audio.free_reserve_bytes }}">
+      </label>
+      <button type="submit">Save audio settings</button>
+    </form>
+  </section>
   <section aria-labelledby="storage-heading">
     <h2 id="storage-heading">Storage</h2>
     {% if storage.low_space %}<p class="notice" role="status">Low disk space. New downloads may fail.</p>{% endif %}

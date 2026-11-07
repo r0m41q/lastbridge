@@ -22,6 +22,15 @@ class AudioProvider(Protocol):
     ) -> dict: ...
 
 
+class AudioConfiguration(Protocol):
+    provider: str
+    policy: str
+    cache_bytes: int
+    file_max_bytes: int
+    free_reserve_bytes: int
+    timeout_seconds: int
+
+
 class ReadyNotifier(Protocol):
     async def notify(self): ...
     async def close(self): ...
