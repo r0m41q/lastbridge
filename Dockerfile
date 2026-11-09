@@ -56,6 +56,10 @@ RUN apt-get source ffmpeg=7:7.1.5-0+deb13u1 \
 
 FROM base AS runtime
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libopus0 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=media-builder /media/ /usr/local/
 
 ENV PYTHONUNBUFFERED=1 \
