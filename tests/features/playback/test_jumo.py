@@ -55,6 +55,37 @@ def test_jumo_candidate_requires_exact_recording_metadata():
     ) == ("10", "20")
 
 
+def test_jumo_multiple_matches_return_album_and_track_for_closest_duration():
+    recording = {
+        "artist": "Daft Punk",
+        "title": "Instant Crush",
+        "album": "Random Access Memories",
+        "duration": 337,
+    }
+    rows = [
+        {
+            "id": 20,
+            "title": "Instant Crush",
+            "performer": {"name": "Daft Punk"},
+            "album": {"id": 10, "title": "Random Access Memories"},
+            "duration": 340,
+        },
+        {
+            "id": 21,
+            "title": "Instant Crush",
+            "performer": {"name": "Daft Punk"},
+            "album": {"id": 11, "title": "Random Access Memories"},
+            "duration": 337,
+        },
+    ]
+
+    album_id, track_id = choose_candidate(rows, recording)
+
+    assert (album_id, track_id) == ("11", "21")
+    assert choose_candidate(list(reversed(rows)), recording) == ("11", "21")
+    assert choose_candidate([], recording) is None
+
+
 def test_jumo_response_decryption_matches_protocol():
     async def scenario():
         async with httpx.AsyncClient() as http:
@@ -90,9 +121,12 @@ def test_jumo_response_decryption_matches_protocol():
                 },
             )
 
-            assert json.loads(
-                client.decrypt(response, body, url, nonce).decode()
-            )["tracks"]["items"] == []
+            assert (
+                json.loads(
+                    client.decrypt(response, body, url, nonce).decode()
+                )["tracks"]["items"]
+                == []
+            )
 
     asyncio.run(scenario())
 

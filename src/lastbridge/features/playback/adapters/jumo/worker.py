@@ -74,9 +74,8 @@ def choose_candidate(
         if duration and duration_delta > 5:
             continue
         candidates.append((duration_delta, album_id, track_id))
-    if len(candidates) != 1:
-        return min(candidates, default=None)
-    return candidates[0][1], candidates[0][2]
+    selected = min(candidates, default=None)
+    return (selected[1], selected[2]) if selected is not None else None
 
 
 async def regions(api: JumoClient) -> tuple[str, set[str]]:
