@@ -89,10 +89,10 @@ class AudioProvider:
                 )
                 messages = {
                     "no_match": "Recording unavailable from Rhythmax",
-                    "preview_only": (
-                        "Rhythmax only offers a preview for this recording"
+                    "low_quality": (
+                        "Rhythmax 320 kbps source audio unavailable"
                     ),
-                    "segment_unavailable": (
+                    "audio_unavailable": (
                         "Rhythmax audio stream is temporarily unavailable"
                     ),
                     "storage_full": "Not enough free space for audio",
@@ -107,9 +107,7 @@ class AudioProvider:
                 )
             return result
         except TimeoutError:
-            logger.warning(
-                "Rhythmax audio worker timed out source=%s", source
-            )
+            logger.warning("Rhythmax audio worker timed out source=%s", source)
             raise CatalogError(
                 0, "Rhythmax audio acquisition timed out; retry"
             ) from None

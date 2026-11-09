@@ -64,10 +64,10 @@ environment variables are absolute ceilings; the Administrator chooses equal or
 lower runtime values from **Administration**. Streaming provider, downloading
 provider, format, timeout, cache, file-size, free-space, Jumo URL, region, and
 quality settings are stored in the Lastbridge database. YouTube Music is the
-default for both roles; Jumo-DL and the public Rhythmax TIDAL provider are
+default for both roles; Jumo-DL and the public [Rhythmax JioSaavn](https://saavn.odskyler.com/) provider are
 available alternatives, and YouTube can be enabled as a fallback. Rhythmax
-requests lossless source audio and the server transcodes it to the selected
-320 kbps target format. Defaults include a shared 1 GB playback cache, AAC
+requests 320 kbps AAC source audio; the server preserves AAC or converts to
+Opus at a 320 kbps target. Defaults include a shared 1 GB playback cache, AAC
 audio, and personal mix refreshes 24 hours
 after the last successful refresh.
 

@@ -101,7 +101,7 @@
     <h2 id="audio-heading">Audio providers and limits</h2>
     <p>Choose the source for playback and background downloads separately. A cached or saved recording can be reused by either role. Deployment ceilings come from environment variables and cannot be exceeded.</p>
     <div class="notice audio-provider-notice">
-      <strong>Quality guide.</strong> Rhythmax uses a public TIDAL Hi-Fi service and requests lossless audio. Lastbridge stores AAC or Opus at a 320 kbps target after validation. YouTube Music remains available, but its source bitrate depends on the recording.
+      <strong>Quality guide.</strong> Rhythmax uses the public JioSaavn service at saavn.odskyler.com and requests 320 kbps AAC. Lastbridge preserves AAC or converts to Opus at a 320 kbps target after validation. YouTube Music remains available, but its source bitrate depends on the recording.
     </div>
     <form class="audio-settings-form" method="post" action="/admin/audio">
       {{ csrf(user.csrf) }}
@@ -110,7 +110,7 @@
         <div class="audio-provider-grid">
           <label>Streaming provider
             <select name="stream_provider">
-              <option value="rhythmax"{% if audio.stream_provider == 'rhythmax' %} selected{% endif %}>Rhythmax · TIDAL lossless</option>
+              <option value="rhythmax"{% if audio.stream_provider == 'rhythmax' %} selected{% endif %}>Rhythmax · JioSaavn 320 kbps</option>
               <option value="youtube"{% if audio.stream_provider == 'youtube' %} selected{% endif %}>YouTube Music</option>
               <option value="jumo"{% if audio.stream_provider == 'jumo' %} selected{% endif %}>Jumo-DL · Qobuz</option>
             </select>
@@ -118,7 +118,7 @@
           </label>
           <label>Downloading provider
             <select name="download_provider">
-              <option value="rhythmax"{% if audio.download_provider == 'rhythmax' %} selected{% endif %}>Rhythmax · TIDAL lossless</option>
+              <option value="rhythmax"{% if audio.download_provider == 'rhythmax' %} selected{% endif %}>Rhythmax · JioSaavn 320 kbps</option>
               <option value="youtube"{% if audio.download_provider == 'youtube' %} selected{% endif %}>YouTube Music</option>
               <option value="jumo"{% if audio.download_provider == 'jumo' %} selected{% endif %}>Jumo-DL · Qobuz</option>
             </select>
@@ -143,7 +143,7 @@
             <input name="timeout_seconds" type="number" min="5" max="600" step="1" required value="{{ audio.timeout_seconds }}">
           </label>
         </div>
-        <small class="audio-help">Rhythmax requests the lossless tier and transcodes it into the selected server format. YouTube Music is not upscaled when its source is lower.</small>
+        <small class="audio-help">Rhythmax requests the 320 kbps tier, preserves AAC, and converts to Opus when selected. YouTube Music is not upscaled when its source is lower.</small>
       </fieldset>
       <fieldset class="audio-settings-group">
         <legend>Storage limits</legend>

@@ -1,1 +1,1 @@
-"""Rhythmax public TIDAL audio acquisition adapter."""
+"""Rhythmax public JioSaavn audio acquisition adapter."""
