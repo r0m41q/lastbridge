@@ -436,7 +436,63 @@ def test_worker_response_limits_and_cleanup(monkeypatch, script, match):
     asyncio.run(run())
 
 
-def test_worker_concurrency_rejects_excess_waiters(monkeypatch):
+def test_worker_concurrency_waits_for_third_search_category(monkeypatch):
+    original = asyncio.create_subprocess_exec
+    processes = []
+
+    async def worker(*args, **kwargs):
+        process = await original(
+            sys.executable,
+            "-c",
+            "import json, sys, time; "
+            "payload = json.load(sys.stdin); time.sleep(1.1); "
+            "print(json.dumps({'data': {payload['kinds'][0]: []}}))",
+            **kwargs,
+        )
+        processes.append(process)
+        assert sum(p.returncode is None for p in processes) <= 2
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", worker)
+
+    async def run():
+        provider = MetadataProvider(timeout=5)
+        kinds = ["albums", "artists", "songs"]
+        results = await asyncio.gather(
+            *(
+                provider.fetch(
+                    {"operation": "search", "query": "hotel", "kinds": [k]}
+                )
+                for k in kinds
+            )
+        )
+        assert results == [{k: []} for k in kinds]
+        assert len(processes) == 3
+        assert all(p.returncode == 0 for p in processes)
+        assert provider.slots._value == 2
+
+    asyncio.run(run())
+
+
+def test_worker_concurrency_rejects_waiters_at_deadline(monkeypatch):
+    async def unexpected(*args, **kwargs):
+        raise AssertionError("No subprocess should be started")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", unexpected)
+
+    async def run():
+        provider = MetadataProvider(timeout=0.05)
+        await provider.slots.acquire()
+        await provider.slots.acquire()
+        with pytest.raises(CatalogError, match="busy"):
+            await provider.fetch({})
+        provider.slots.release()
+        provider.slots.release()
+
+    asyncio.run(run())
+
+
+def test_cancelled_waiter_does_not_take_worker_slot(monkeypatch):
     async def unexpected(*args, **kwargs):
         raise AssertionError("No subprocess should be started")
 
@@ -446,10 +502,14 @@ def test_worker_concurrency_rejects_excess_waiters(monkeypatch):
         provider = MetadataProvider()
         await provider.slots.acquire()
         await provider.slots.acquire()
-        with pytest.raises(CatalogError, match="busy"):
-            await provider.fetch({})
+        waiting = asyncio.create_task(provider.fetch({}))
+        await asyncio.sleep(0)
+        waiting.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiting
         provider.slots.release()
         provider.slots.release()
+        assert provider.slots._value == 2
 
     asyncio.run(run())
 

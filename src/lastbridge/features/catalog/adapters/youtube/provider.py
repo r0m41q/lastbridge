@@ -28,6 +28,11 @@ class MetadataProvider:
         return output
 
     async def fetch(self, payload):
+        # Admission and execution share one deadline. Feishin requests three
+        # search categories concurrently; the third must be allowed to wait
+        # for either of the two workers instead of failing after one second.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.timeout
         slots = (
             self.radio_slots
             if payload.get("operation") == "radio"
@@ -36,7 +41,7 @@ class MetadataProvider:
         if payload.get("operation") == "playlist":
             slots = self.playlist_slots
         try:
-            await asyncio.wait_for(slots.acquire(), timeout=1)
+            await asyncio.wait_for(slots.acquire(), timeout=self.timeout)
         except TimeoutError:
             raise CatalogError(
                 0, "Metadata provider busy; retry shortly"
@@ -52,7 +57,8 @@ class MetadataProvider:
                 stderr=asyncio.subprocess.DEVNULL,
             )
             output = await asyncio.wait_for(
-                self.exchange(process, payload), timeout=self.timeout
+                self.exchange(process, payload),
+                timeout=max(0, deadline - loop.time()),
             )
             result = json.loads(output)
             if (
