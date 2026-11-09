@@ -549,6 +549,7 @@ def test_worker_full_track_download_and_validation(tmp_path, monkeypatch):
     assert download(payload)["policy"] == "aac"
     assert options["continuedl"] is False
     assert options["remote_components"] == []
+    assert options["postprocessors"] == []
     with pytest.raises(ProviderError, match="too_large"):
         options["progress_hooks"][0]({"downloaded_bytes": 8193})
 

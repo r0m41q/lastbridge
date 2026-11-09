@@ -6,6 +6,9 @@ import os
 import signal
 import sys
 
+from lastbridge.features.playback.adapters.youtube.diagnostics import (
+    safe_diagnostics,
+)
 from lastbridge.shared.errors import CatalogError
 
 logger = logging.getLogger(__name__)
@@ -65,11 +68,29 @@ class AudioProvider:
                 )
                 raise CatalogError(0, "Audio provider unavailable; retry")
             if result.get("error"):
+                reason = result["error"]
+                if reason not in {
+                    "access_denied",
+                    "unavailable",
+                    "no_audio_format",
+                    "storage_full",
+                    "too_large",
+                    "network_error",
+                    "provider_error",
+                    "ffmpeg_muxer_missing",
+                    "ffmpeg_demuxer_missing",
+                    "media_tools_missing",
+                    "player_challenge_failed",
+                    "ffmpeg_option_missing",
+                }:
+                    reason = "provider_error"
                 logger.warning(
                     "YouTube audio worker reported failure source=%s "
-                    "reason=%s",
+                    "policy=%s reason=%s diagnostics=%s",
                     source,
-                    result["error"],
+                    policy,
+                    reason,
+                    safe_diagnostics(result.get("diagnostics")),
                 )
                 messages = {
                     "access_denied": "Audio provider denied access; try later",
@@ -80,10 +101,15 @@ class AudioProvider:
                 }
                 raise CatalogError(
                     0,
-                    messages.get(
-                        result["error"], "Audio provider unavailable; retry"
-                    ),
+                    messages.get(reason, "Audio provider unavailable; retry"),
                 )
+            logger.info(
+                "YouTube audio worker completed source=%s policy=%s "
+                "diagnostics=%s",
+                source,
+                policy,
+                safe_diagnostics(result.get("diagnostics")),
+            )
             return result
         except TimeoutError:
             logger.warning("YouTube audio worker timed out source=%s", source)
