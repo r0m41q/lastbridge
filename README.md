@@ -15,6 +15,11 @@ Still in development. Feishin browsing, playback, seeking, and downloads have be
 confirmed; iOS client testing is pending. Radio, autoplay, and lyrics depend on
 client support and provider availability.
 
+Search puts YouTube Music's recommended artists, albums, and tracks from its
+search predictions first, followed by regular results. These appear in your
+client's existing search results; no separate autocomplete UI is required.
+If predictions are unavailable, regular search remains available.
+
 ## Run with Docker Compose
 
 ```sh

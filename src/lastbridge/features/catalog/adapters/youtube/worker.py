@@ -4,6 +4,7 @@ import logging
 import re
 import sys
 
+from lastbridge.features.catalog.adapters.youtube.suggestions import search
 from lastbridge.shared.recordings import normalize, normalize_title
 
 
@@ -81,10 +82,7 @@ def execute(payload):
     music = YTMusic()
     operation = payload["operation"]
     if operation == "search":
-        return {
-            kind: music.search(payload["query"], filter=kind, limit=100)[:100]
-            for kind in payload["kinds"]
-        }
+        return search(music, payload["query"], payload["kinds"])
     if operation == "album":
         return music.get_album(payload["source"])
     if operation == "artist":
