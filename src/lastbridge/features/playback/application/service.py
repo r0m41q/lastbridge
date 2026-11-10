@@ -35,8 +35,7 @@ class AudioCache:
 
     async def configure(self, settings: AudioConfiguration):
         if settings.stream_provider not in ("youtube", "jumo", "rhythmax") or (
-            settings.download_provider
-            not in ("youtube", "jumo", "rhythmax")
+            settings.download_provider not in ("youtube", "jumo", "rhythmax")
         ):
             raise ValueError("Select a supported audio provider.")
         configure = getattr(self.provider, "configure", None)
@@ -81,10 +80,14 @@ class AudioCache:
 
     async def retain(self, key):
         async with self.storage.lock:
-            if key in self.storage.pins:
-                self.storage.relocate(key, True)
-                return True
-            return False
+            if key not in self.storage.pins:
+                return False
+            self.storage.relocate(key, True)
+        # A liked track can already be cached from streaming, so fill() may
+        # not run. Wake cover population for promotions as well as downloads.
+        if self.ready_notifier is not None:
+            await self.ready_notifier.notify()
+        return True
 
     async def acquire(self, source, role="stream"):
         if not VIDEO_ID.fullmatch(source):

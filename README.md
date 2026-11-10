@@ -126,6 +126,16 @@ Saved recordings preserve the selected audio policy and container. Lastbridge
 does not transcode audio for Jellyfin: AAC/M4A and Opus/WebM remain separate
 supported policies, and clients must support the selected format.
 
+Artwork uses Metrolist-style Google image URLs requesting 1080×1080 covers,
+with the original thumbnail as a fallback. A background worker writes one
+`cover.jpg`, `cover.png` or `cover.webp` per saved album for Jellyfin, using the
+format actually returned by the provider. New saves and existing ready files
+listed in Lastbridge's database are populated automatically; audio is not
+downloaded again or retagged. Existing `cover`/`folder` image files are preserved.
+Artwork failures never fail an audio download and are retried every five
+minutes. Only database-managed saved paths are inspected; other music is not
+scanned. When configured, the Jellyfin scan notification follows cover writing.
+
 The container runs as UID 10001. The host paths must be writable by UID 10001
 and readable/traversable by the Jellyfin process. For a dedicated Lastbridge
 subtree, for example:

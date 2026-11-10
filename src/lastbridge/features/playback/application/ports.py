@@ -42,6 +42,18 @@ class ReadyNotifier(Protocol):
     async def close(self): ...
 
 
+class ArtworkSource(Protocol):
+    async def fetch(self, source: str) -> tuple[bytes, str]: ...
+
+
+class AlbumCovers(Protocol):
+    def needed(self, relative_path: str) -> bool: ...
+
+    def write(
+        self, relative_path: str, data: bytes, media_type: str
+    ) -> bool: ...
+
+
 class AudioStorage(Protocol):
     directory: Path
     incoming: Path

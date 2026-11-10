@@ -452,3 +452,30 @@ def test_jellyfin_notifier_posts_refresh_request():
     request = requests[0]
     assert request.url.path == "/Library/Refresh"
     assert request.headers["X-Emby-Token"] == "test-api-key"
+
+
+def test_cached_track_promotion_notifies_after_saved_commit(tmp_path):
+    async def scenario():
+        calls = []
+
+        class Notifier:
+            async def notify(self):
+                assert not audio.storage.lock.locked()
+                assert repository.get(SOURCE, "aac").state == "ready"
+                calls.append(True)
+
+            async def close(self):
+                pass
+
+        audio, repository = make_managed_audio(
+            tmp_path, ready_notifier=Notifier()
+        )
+        key, entry = await audio.acquire(SOURCE)
+        assert not entry["saved"] and not calls
+        audio.storage.pins.add(key)
+        assert await audio.retain(key)
+        assert calls == [True]
+        await audio.release(key)
+        await audio.close()
+
+    asyncio.run(scenario())

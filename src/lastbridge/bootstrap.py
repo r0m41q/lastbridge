@@ -54,6 +54,10 @@ from lastbridge.features.lyrics.adapters.sqlite.repository import (
     LyricsRepository,
 )
 from lastbridge.features.lyrics.application.service import Lyrics
+from lastbridge.features.playback.adapters.catalog import CatalogArtwork
+from lastbridge.features.playback.adapters.filesystem.artwork import (
+    AlbumCovers,
+)
 from lastbridge.features.playback.adapters.filesystem.metadata import (
     MetadataWriter,
 )
@@ -77,6 +81,7 @@ from lastbridge.features.playback.adapters.sqlite.repository import (
 from lastbridge.features.playback.adapters.youtube.provider import (
     AudioProvider,
 )
+from lastbridge.features.playback.application.artwork import SavedArtwork
 from lastbridge.features.playback.application.media import MediaPlacement
 from lastbridge.features.playback.application.ports import (
     AudioProvider as AudioProviderPort,
@@ -222,12 +227,22 @@ async def bootstrap(
                 "Cannot initialize account storage/credentials"
             ) from None
 
+        client = await resources.enter_async_context(
+            httpx.AsyncClient(
+                timeout=httpx.Timeout(15.0, connect=5.0),
+                limits=httpx.Limits(
+                    max_connections=20, max_keepalive_connections=10
+                ),
+                follow_redirects=False,
+            )
+        )
         try:
             media_files = None
             media_placement = None
             metadata_writer = None
             descriptor_factory = None
             ready_notifier = None
+            saved_artwork = None
             if providers is None:
                 media_files = MediaFileRepository(database)
                 media_placement = MediaPlacement(media_files)
@@ -275,6 +290,14 @@ async def bootstrap(
                 )
             else:
                 provider = selected.audio
+            if media_files is not None:
+                saved_artwork = SavedArtwork(
+                    media_files,
+                    CatalogArtwork(catalog, client),
+                    AlbumCovers(config.data_dir / "saved" / "audio"),
+                    ready_notifier,
+                )
+                ready_notifier = saved_artwork
             audio = AudioCache(
                 storage,
                 provider,
@@ -285,6 +308,8 @@ async def bootstrap(
             raise RuntimeError("Cannot initialize audio cache") from None
         resources.push_async_callback(audio.close)
         resources.push_async_callback(library.close)
+        if saved_artwork is not None and start_workers:
+            saved_artwork.start()
         await library.start(audio, worker=start_workers)
 
         dashboard = DashboardRepository(database, audio_settings.policy)
@@ -296,15 +321,6 @@ async def bootstrap(
             dashboard.policy = settings.policy
             await library.reconcile()
 
-        client = await resources.enter_async_context(
-            httpx.AsyncClient(
-                timeout=httpx.Timeout(15.0, connect=5.0),
-                limits=httpx.Limits(
-                    max_connections=20, max_keepalive_connections=10
-                ),
-                follow_redirects=False,
-            )
-        )
         radio = Radio(
             RadioRepository(database),
             RadioCatalog(catalog),

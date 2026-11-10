@@ -21,7 +21,11 @@ from support.catalog import (
 from lastbridge.features.catalog.adapters.youtube.provider import (
     MetadataProvider,
 )
-from lastbridge.features.catalog.domain.documents import identity, image_url
+from lastbridge.features.catalog.domain.documents import (
+    artwork_url,
+    identity,
+    image_url,
+)
 from lastbridge.shared.errors import CatalogError
 
 
@@ -339,7 +343,7 @@ def test_artwork_proxy_bounded_and_no_redirects(catalog_service):
     async def run(status=200, headers=None, data=b"image fixture"):
         def handle(request):
             seen.append(request)
-            assert str(request.url) == ART
+            assert str(request.url) in (artwork_url(ART), ART)
             assert "apiKey" not in str(request.url)
             return httpx.Response(
                 status,
@@ -355,7 +359,7 @@ def test_artwork_proxy_bounded_and_no_redirects(catalog_service):
     assert asyncio.run(run()) == (b"image fixture", "image/jpeg")
     with pytest.raises(CatalogError, match="provider unavailable"):
         asyncio.run(run(302, {"location": "http://127.0.0.1/private"}))
-    assert len(seen) == 2
+    assert len(seen) == 3
     with pytest.raises(CatalogError, match="Artwork unavailable"):
         asyncio.run(run(headers={"content-type": "text/html"}))
     with pytest.raises(CatalogError, match="size limit"):

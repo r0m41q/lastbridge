@@ -87,7 +87,7 @@ async def cover(request, method, values, user):
     data, media_type = await catalog.artwork(
         services(request).http_client, required(values, "id")
     )
-    # The provider thumbnail is returned unchanged; size is advisory.
+    # Google artwork is requested at 1080px; the client's size is advisory.
     return Response(data, media_type=media_type)
 
 

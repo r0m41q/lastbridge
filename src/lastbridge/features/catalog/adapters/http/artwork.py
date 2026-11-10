@@ -1,6 +1,6 @@
 import httpx
 
-from lastbridge.features.catalog.domain.documents import image_url
+from lastbridge.features.catalog.domain.documents import artwork_url, image_url
 from lastbridge.shared.errors import CatalogError
 
 
@@ -17,6 +17,17 @@ class ArtworkLookup:
             if parent:
                 return await self.fetch(client, parent)
             raise CatalogError(70, "Artwork unavailable")
+        # Upgrade at read time so existing catalog records benefit too. Some
+        # Google assets cannot serve that size; retain the original fallback.
+        for candidate in dict.fromkeys((artwork_url(url), url)):
+            try:
+                return await self.download(client, candidate)
+            except CatalogError:
+                if candidate == url:
+                    raise
+
+    @staticmethod
+    async def download(client, url):
         try:
             async with client.stream("GET", url, follow_redirects=False) as r:
                 r.raise_for_status()
