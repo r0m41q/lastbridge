@@ -61,7 +61,7 @@ class MetadataWriter:
                 timeout=60,
             )
             os.replace(temporary_path, destination)
-        except (OSError, subprocess.SubprocessError, TimeoutError):
+        except OSError, subprocess.SubprocessError, TimeoutError:
             temporary_path.unlink(missing_ok=True)
             raise RuntimeError("Audio metadata writing failed") from None
         return destination
@@ -103,5 +103,8 @@ class MetadataWriter:
                         f"{TAGS[descriptor.policy][field]}={value}",
                     ]
                 )
-        command.append(str(destination))
+        # The minimal media build enables mp4, but not the ipod muxer that
+        # FFmpeg normally selects from a .m4a suffix.
+        container = "mp4" if descriptor.policy == "aac" else "webm"
+        command.extend(["-f", container, str(destination)])
         return command

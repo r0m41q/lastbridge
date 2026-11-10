@@ -261,11 +261,14 @@ def test_media_placement_persists_path_once_and_separates_policies(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("policy", "extension", "tag"),
-    [("aac", ".m4a", "title"), ("opus", ".webm", "TITLE")],
+    ("policy", "extension", "tag", "container"),
+    [
+        ("aac", ".m4a", "title", "mp4"),
+        ("opus", ".webm", "TITLE", "webm"),
+    ],
 )
 def test_metadata_writer_uses_format_tags_without_transcoding(
-    tmp_path, monkeypatch, policy, extension, tag
+    tmp_path, monkeypatch, policy, extension, tag, container
 ):
     calls = []
 
@@ -300,6 +303,7 @@ def test_metadata_writer_uses_format_tags_without_transcoding(
     assert result == destination
     assert destination.read_bytes() == b"tagged audio"
     assert command[command.index("-c") + 1] == "copy"
+    assert command[-3:-1] == ["-f", container]
     assert f"{tag}=A title" in command
     assert options["check"] is True
     assert options["timeout"] == 60
@@ -321,9 +325,10 @@ def test_managed_storage_publishes_retained_audio_directly_to_saved_root(
             "01 - Song [aac].m4a",
         )
         assert record.state == "ready"
-        assert record.relative_path == saved_path.relative_to(
-            tmp_path / "saved" / "audio"
-        ).as_posix()
+        assert (
+            record.relative_path
+            == saved_path.relative_to(tmp_path / "saved" / "audio").as_posix()
+        )
         assert not list((tmp_path / "cache" / "audio").glob("*.m4a"))
         await audio.release(key)
         await audio.close()
