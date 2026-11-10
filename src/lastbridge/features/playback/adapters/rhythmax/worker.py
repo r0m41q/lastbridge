@@ -23,44 +23,84 @@ def choose_candidate(rows: list[dict], recording: dict) -> str | None:
     title = normalize_title(recording.get("title", ""))
     album = normalize(recording.get("album", ""))
     duration = recording.get("duration")
+    explicit = recording.get("isExplicit")
     candidates = []
-    for row in rows:
+    for position, row in enumerate(rows):
         if not isinstance(row, dict) or row.get("type") != "song":
             continue
-        track_id = str(row.get("id", ""))
+        track_id = row.get("id")
         row_title = row.get("title")
-        if not track_id or not isinstance(row_title, str):
+        if (
+            not isinstance(track_id, str)
+            or not track_id
+            or not isinstance(row_title, str)
+        ):
             continue
         info = row.get("more_info")
         if not isinstance(info, dict):
             continue
-        primary = info.get("artists", {}).get("primary", [])
-        if artist not in {
-            normalize(unescape(item.get("name", "")))
+        credits = info.get("artists")
+        primary = credits.get("primary") if isinstance(credits, dict) else None
+        if not isinstance(primary, list):
+            continue
+        names = [
+            unescape(item["name"])
             for item in primary
-            if isinstance(item, dict)
+            if isinstance(item, dict) and isinstance(item.get("name"), str)
+        ]
+        if not artist or artist not in {
+            *(normalize(name) for name in names),
+            normalize(", ".join(names)),
         }:
             continue
         if normalize_title(unescape(row_title)) != title:
             continue
-        release_name = normalize(unescape(info.get("album", "")))
-        if album and release_name != album:
-            continue
+        release = info.get("album")
+        release_name = (
+            normalize(unescape(release)) if isinstance(release, str) else ""
+        )
         try:
-            duration_delta = abs(
-                float(info.get("duration", 0)) - float(duration or 0)
+            seconds = float(info.get("duration", 0))
+            expected = float(duration or 0)
+        except TypeError, ValueError, OverflowError:
+            continue
+        if (
+            not math.isfinite(seconds)
+            or seconds <= 0
+            or not math.isfinite(expected)
+            or expected < 0
+        ):
+            continue
+        duration_delta = abs(seconds - expected) if expected else 0
+        if expected and duration_delta > 5:
+            continue
+        candidate_explicit = row.get("isExplicit")
+        if type(explicit) is bool:
+            # Missing provider flags cannot establish the selected version.
+            if candidate_explicit is not explicit:
+                continue
+            variant_rank = 0
+        else:
+            # Older catalog entries have no flag. Prefer an explicit version,
+            # then unknown, then clean, rather than silently censoring tracks.
+            variant_rank = (
+                0
+                if candidate_explicit is True
+                else 2
+                if candidate_explicit is False
+                else 1
             )
-        except TypeError, ValueError:
-            continue
-        if duration and duration_delta > 5:
-            continue
-        candidates.append((duration_delta, track_id))
-    if not candidates:
-        return None
-    candidates.sort()
-    if len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
-        return None
-    return candidates[0][1]
+        candidates.append(
+            (
+                variant_rank,
+                bool(album and release_name != album),
+                duration_delta,
+                position,
+                track_id,
+            )
+        )
+    selected = min(candidates, default=None)
+    return selected[-1] if selected is not None else None
 
 
 async def resolve(api: RhythmaxClient, recording: dict) -> dict:

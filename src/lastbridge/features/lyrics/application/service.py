@@ -101,6 +101,34 @@ class Lyrics:
             task.add_done_callback(lambda _: self.tasks.pop(key, None))
         return await asyncio.shield(self.tasks[key])
 
+    async def by_name(self, artist, title, *, fetch=True):
+        # Legacy clients supply names, not an ID. Reuse the exact catalog
+        # song's validation, request coalescing, provider and persistent cache.
+        if (
+            not fetch
+            or self.closed
+            or any(
+                not text(value) or not value.strip() or len(value) > 1024
+                for value in (artist, title)
+            )
+        ):
+            return {}
+        try:
+            song_id = self.catalog.song_named(artist, title)
+            if song_id is None:
+                return {}
+            documents = await self.get(song_id)
+        except StorageError:
+            return {}
+        if not documents:
+            return {}
+        document = documents[0]
+        return {
+            "artist": document["displayArtist"],
+            "title": document["displayTitle"],
+            "value": "\n".join(line["value"] for line in document["line"]),
+        }
+
     async def close(self):
         self.closed = True
         tasks = list(self.tasks.values())

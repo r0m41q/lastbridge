@@ -88,6 +88,11 @@ class MetadataDocuments(RadioDocuments):
                 "year": album.get("year"),
                 "track": position,
                 "duration": number(row.get("duration_seconds")),
+                **(
+                    {"isExplicit": row["isExplicit"]}
+                    if type(row.get("isExplicit")) is bool
+                    else {}
+                ),
                 "coverArt": album.get("coverArt"),
                 **self.credits(row),
             },

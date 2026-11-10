@@ -3,6 +3,7 @@ from typing import Protocol
 
 class CatalogAccess(Protocol):
     def read(self, item_id: str, kind: str | None = None) -> dict: ...
+    def song_named(self, artist: str, title: str) -> str | None: ...
 
 
 class LyricsStore(Protocol):

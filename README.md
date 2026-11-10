@@ -76,6 +76,18 @@ Opus at a 320 kbps target. Defaults include a shared 1 GB playback cache, AAC
 audio, and personal mix refreshes 24 hours
 after the last successful refresh.
 
+Rhythmax preserves a selected track's explicit/clean flag when available.
+Equivalent recordings on other albums are eligible: the selected album wins,
+then the closest duration (within five seconds), then provider result order.
+Live/remix/version qualifiers in track titles must still match. Older catalog
+entries without an explicit flag prefer explicit, then unknown, then clean
+recordings. Known version mismatches use the configured YouTube fallback.
+
+Lyrics are served through synced `getLyricsBySongId` and legacy `getLyrics`.
+The legacy endpoint resolves artist and title against the existing catalog and
+returns plain text from the same LRCLIB lookup and cache. Missing names or an
+unknown catalog song return empty lyrics. Lyrics are not embedded in saved files.
+
 Favorites and playlists marked **Keep downloaded** retain audio outside the cache
 limit. Ordinary playlists store metadata only. Linking Last.fm automatically
 imports matched loved tracks as favorites and queues their downloads; manage the

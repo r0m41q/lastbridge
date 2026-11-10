@@ -49,6 +49,24 @@ def test_all_entity_categories_preserve_suggestion_order():
     assert not any(c[0] == "get_song" for c in music.calls)
 
 
+@pytest.mark.parametrize("explicit", [True, False])
+def test_prediction_retains_explicit_badge(explicit):
+    item = suggestion()
+    item["musicResponsiveListItemRenderer"]["badges"] = (
+        [
+            {
+                "musicInlineBadgeRenderer": {
+                    "icon": {"iconType": "MUSIC_EXPLICIT_BADGE"}
+                }
+            }
+        ]
+        if explicit
+        else []
+    )
+    result = recommendations(response(item))
+    assert result["songs"][0]["isExplicit"] is explicit
+
+
 def test_no_requested_categories_make_no_requests():
     music = SuggestionMusic()
     assert search(music, "hotel", []) == {}

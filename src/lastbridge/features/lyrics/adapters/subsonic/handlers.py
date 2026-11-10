@@ -12,6 +12,18 @@ async def lyrics(request, method, values, user):
     }
 
 
+async def legacy_lyrics(request, method, values, user):
+    return {
+        "lyrics": {"value": ""}
+        | await services(request).lyrics.by_name(
+            values.get("artist", ""),
+            values.get("title", ""),
+            fetch=request.method != "HEAD",
+        )
+    }
+
+
 HANDLERS = {
     "getLyricsBySongId": lyrics,
+    "getLyrics": legacy_lyrics,
 }

@@ -67,6 +67,14 @@ def parse_item(renderer):
             "videoType": video_type,
             "artists": artists,
             "album": albums[0],
+            "isExplicit": any(
+                badge.get("musicInlineBadgeRenderer", {})
+                .get("icon", {})
+                .get("iconType")
+                == "MUSIC_EXPLICIT_BADGE"
+                for badge in renderer.get("badges", [])
+                if isinstance(badge, dict)
+            ),
             "thumbnails": thumbnails,
         }
     entity = browse({"text": title, "navigationEndpoint": endpoint})

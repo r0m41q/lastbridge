@@ -107,6 +107,7 @@ def execute(payload):
                         "duration",
                         "thumbnails",
                         "isAvailable",
+                        "isExplicit",
                     )
                     if key in row
                 }
@@ -132,6 +133,7 @@ def execute(payload):
                         "length",
                         "duration_seconds",
                         "thumbnail",
+                        "isExplicit",
                         "isAvailable",
                     )
                     if key in row

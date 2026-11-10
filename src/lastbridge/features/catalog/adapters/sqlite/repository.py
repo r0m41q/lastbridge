@@ -7,6 +7,7 @@ from lastbridge.features.catalog.domain.documents import (
     identity,
 )
 from lastbridge.shared.errors import CatalogError
+from lastbridge.shared.recordings import normalize
 
 
 class CatalogRepository:
@@ -23,6 +24,27 @@ class CatalogRepository:
                 )
                 if json.loads(r["document"])["name"].strip().casefold() == name
             ]
+
+    def song_named(self, artist, title):
+        # SQLite's built-in lower() only handles ASCII. Normalize metadata
+        # with the same Unicode rules for both parameters and stored names.
+        with self.database.connection() as connection:
+            connection.create_function(
+                "recording_name",
+                1,
+                lambda value: (
+                    normalize(value) if isinstance(value, str) else ""
+                ),
+                deterministic=True,
+            )
+            row = connection.execute(
+                "SELECT id FROM catalog WHERE kind='song' "
+                "AND recording_name(json_extract(document,'$.artist'))=? "
+                "AND recording_name(json_extract(document,'$.title'))=? "
+                "ORDER BY complete DESC, updated DESC, id LIMIT 1",
+                (normalize(artist), normalize(title)),
+            ).fetchone()
+        return row["id"] if row else None
 
     def read(self, item_id, kind=None):
         with self.database.connection() as connection:

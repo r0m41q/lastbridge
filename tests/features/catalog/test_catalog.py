@@ -695,3 +695,19 @@ def test_large_requested_song_page_remains_bounded(catalog_service):
     )
     assert end["searchResult3"]["song"] == []
     assert len(provider.calls) == 1
+
+
+@pytest.mark.parametrize("explicit", [True, False, None, "false"])
+def test_song_persists_explicit_status_only_when_known(
+    catalog_service, explicit
+):
+    catalog = catalog_service[1].state.services.catalog
+    song = catalog.song(SONG | {"isExplicit": explicit})
+    restored = catalog.read(song["id"])["document"]
+    if type(explicit) is bool:
+        assert restored["isExplicit"] is explicit
+        # Sparse old payloads cannot erase an established version flag.
+        catalog.song(SONG)
+        assert catalog.read(song["id"])["document"]["isExplicit"] is explicit
+    else:
+        assert "isExplicit" not in restored

@@ -38,7 +38,13 @@ class AudioProvider:
             payload = {
                 "recording": {
                     key: recording.get(key)
-                    for key in ("artist", "title", "album", "duration")
+                    for key in (
+                        "artist",
+                        "title",
+                        "album",
+                        "duration",
+                        "isExplicit",
+                    )
                 },
                 "policy": policy,
                 "directory": str(directory),

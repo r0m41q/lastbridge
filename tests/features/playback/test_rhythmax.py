@@ -15,6 +15,9 @@ from lastbridge.features.playback.adapters.rhythmax.client import (
     RhythmaxError,
     media_url,
 )
+from lastbridge.features.playback.adapters.rhythmax.provider import (
+    AudioProvider,
+)
 
 
 def encrypt_url(url):
@@ -58,8 +61,8 @@ def test_candidate_matches_saavn_metadata_and_excludes_other_versions():
         song(),
     ]
     assert worker.choose_candidate(rows, RECORDING) == "song1"
-    assert (
-        worker.choose_candidate([song(), song("duplicate")], RECORDING) is None
+    assert worker.choose_candidate([song(), song("duplicate")], RECORDING) == (
+        "song1"
     )
     assert worker.choose_candidate([song(duration="bad")], RECORDING) is None
     assert (
@@ -69,6 +72,144 @@ def test_candidate_matches_saavn_metadata_and_excludes_other_versions():
         is None
     )
     assert worker.choose_candidate([], RECORDING) is None
+
+
+def test_candidate_prefers_album_then_duration_then_provider_order():
+    rows = [
+        song("compilation", album="Hits", duration="337"),
+        song("original-longer", duration="340"),
+        song("original-first", duration="338"),
+        song("original-second", duration="338"),
+    ]
+    assert worker.choose_candidate(rows, RECORDING) == "original-first"
+    assert worker.choose_candidate(rows[:1], RECORDING) == "compilation"
+    assert (
+        worker.choose_candidate(rows, RECORDING | {"album": "Missing release"})
+        == "compilation"
+    )
+    assert (
+        worker.choose_candidate(
+            rows, RECORDING | {"album": "Missing release", "duration": None}
+        )
+        == "compilation"
+    )
+
+
+@pytest.mark.parametrize("explicit", [True, False])
+def test_candidate_preserves_explicit_or_clean_version(explicit):
+    wrong = song("opposite") | {"isExplicit": not explicit}
+    unknown = song("unknown")
+    matching = song("matching", album="Hits") | {"isExplicit": explicit}
+    recording = RECORDING | {"isExplicit": explicit}
+    assert (
+        worker.choose_candidate([wrong, unknown, matching], recording)
+        == "matching"
+    )
+    assert worker.choose_candidate([wrong, unknown], recording) is None
+
+
+def test_unknown_catalog_version_prefers_explicit_then_unknown_then_clean():
+    clean = song("clean") | {"isExplicit": False}
+    unknown = song("unknown")
+    explicit = song("explicit", album="Hits") | {"isExplicit": True}
+    assert worker.choose_candidate([clean, unknown, explicit], RECORDING) == (
+        "explicit"
+    )
+    assert worker.choose_candidate([clean, unknown], RECORDING) == "unknown"
+    assert worker.choose_candidate([clean], RECORDING) == "clean"
+
+
+@pytest.mark.parametrize("version", ["Live", "Remix", "Acoustic"])
+def test_candidate_keeps_recording_version_qualifiers(version):
+    other = song("other") | {"title": f"Instant Crush ({version})"}
+    assert worker.choose_candidate([other], RECORDING) is None
+    assert (
+        worker.choose_candidate(
+            [song(), other],
+            RECORDING | {"title": f"Instant Crush ({version})"},
+        )
+        == "other"
+    )
+
+
+@pytest.mark.parametrize(
+    "seconds", ["nan", "inf", "-inf", "0", "-1", None, {}, 10**400]
+)
+def test_candidate_rejects_invalid_duration(seconds):
+    assert worker.choose_candidate([song(duration=seconds)], RECORDING) is None
+
+
+def test_candidate_accepts_combined_primary_credits_and_skips_malformed_rows():
+    rows = [
+        None,
+        song(artists=None),
+        song(artists={"primary": None}),
+        song() | {"id": None},
+        song("valid"),
+    ]
+    assert (
+        worker.choose_candidate(
+            rows, RECORDING | {"artist": "Daft Punk, Julian Casablancas"}
+        )
+        == "valid"
+    )
+
+
+def test_surround_sound_explicit_and_clean_duplicates():
+    recording = {
+        "artist": "JID",
+        "title": "Surround Sound (feat. 21 Savage & Baby Tate)",
+        "album": "The Forever Story (Extended Version)",
+        "duration": 230,
+    }
+    rows = [
+        {
+            "id": track_id,
+            "type": "song",
+            "title": "Surround Sound",
+            "isExplicit": explicit,
+            "more_info": {
+                "album": recording["album"],
+                "duration": "230",
+                "artists": {"primary": [{"name": "Jid"}]},
+            },
+        }
+        for track_id, explicit in [("CQ2zbct2", False), ("9KYRUmL_", True)]
+    ]
+    assert worker.choose_candidate(rows, recording) == "9KYRUmL_"
+    assert (
+        worker.choose_candidate(rows, recording | {"isExplicit": False})
+        == "CQ2zbct2"
+    )
+
+
+@pytest.mark.parametrize("explicit", [True, False, None])
+def test_provider_passes_selected_version_to_worker(
+    tmp_path, monkeypatch, explicit
+):
+    async def scenario():
+        launch = asyncio.create_subprocess_exec
+
+        async def substitute(*args, **kwargs):
+            return await launch(
+                args[0],
+                "-c",
+                "import json,sys; p=json.load(sys.stdin); "
+                "print(json.dumps({'policy': p['policy'], "
+                "'isExplicit': p['recording']['isExplicit']}))",
+                **kwargs,
+            )
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", substitute)
+        provider = AudioProvider(
+            lambda _: RECORDING | {"isExplicit": explicit}
+        )
+        result = await provider.fetch(
+            "khnokW3Mw24", "aac", tmp_path, 1_000_000, 0
+        )
+        assert result["isExplicit"] is explicit
+
+    asyncio.run(scenario())
 
 
 def test_media_url_matches_frontend_quality_selection():

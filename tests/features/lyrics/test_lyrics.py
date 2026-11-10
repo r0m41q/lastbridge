@@ -115,6 +115,131 @@ def test_json_xml_post_cache_and_public_only_metadata(lyrics_service):
         assert not connection.execute("SELECT * FROM save_jobs").fetchall()
 
 
+@pytest.mark.parametrize("legacy_first", [True, False])
+@pytest.mark.parametrize("synced", [True, False])
+def test_legacy_lyrics_share_cache_and_return_plain_text(
+    lyrics_service, legacy_first, synced
+):
+    service, song, state = lyrics_service
+    if not synced:
+        state["row"]["syncedLyrics"] = None
+    if not legacy_first:
+        entries(service, song)
+    result = body(
+        get(service, "getLyrics", artist=song["artist"], title=song["title"])
+    )["lyrics"]
+    structured_result = entries(service, song)[0]
+    assert result == {
+        "artist": song["artist"],
+        "title": song["title"],
+        "value": "\n".join(
+            line["value"] for line in structured_result["line"]
+        ),
+    }
+    assert "[00:" not in result["value"]
+    assert len(state["calls"]) == 1
+    response = get(
+        service,
+        "getLyrics.view",
+        artist=song["artist"],
+        title=song["title"],
+        f="xml",
+    )
+    element = fromstring(response.content).find(
+        "{http://subsonic.org/restapi}lyrics"
+    )
+    assert element.text == result["value"]
+    assert element.attrib == {"artist": song["artist"], "title": song["title"]}
+    assert "&lt;" in response.text and "&amp;" in response.text
+    response = service[0].post(
+        "/rest/getLyrics.view",
+        data={
+            "apiKey": service[3]["alice"],
+            "artist": song["artist"],
+            "title": song["title"],
+            "f": "json",
+            "c": "test",
+            "v": "1.16.1",
+        },
+    )
+    assert body(response)["lyrics"] == result
+    assert len(state["calls"]) == 1
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {},
+        {"artist": "Someone"},
+        {"title": "Something"},
+        {"artist": "Someone", "title": "Something"},
+        {"artist": "Daft Punk & friends", "title": "Instant Crush"},
+        {"artist": "Daft Punk & friends", "title": "Instant Crush (Live)"},
+        {"artist": "x" * 1025, "title": "Something"},
+    ],
+)
+def test_legacy_missing_or_unknown_names_do_not_fetch(lyrics_service, params):
+    service, _, state = lyrics_service
+    assert body(get(service, "getLyrics", **params))["lyrics"] == {"value": ""}
+    assert not state["calls"]
+
+
+def test_legacy_auth_and_head_do_not_fetch(lyrics_service):
+    service, song, state = lyrics_service
+    params = {"artist": song["artist"], "title": song["title"]}
+    for key, code in (("wrong", 44), (service[3]["unlinked"], 50)):
+        assert (
+            body(get(service, "getLyrics", **params, apiKey=key))["error"][
+                "code"
+            ]
+            == code
+        )
+    response = service[0].head(
+        "/rest/getLyrics.view",
+        params=params
+        | {
+            "apiKey": service[3]["admin"],
+            "v": "1.16.1",
+            "c": "test",
+        },
+    )
+    assert response.status_code == 200 and not response.content
+    assert not state["calls"]
+
+
+def test_legacy_unicode_names_and_version_matching(lyrics_service):
+    service, song, state = lyrics_service
+    catalog = service[1].state.services.catalog
+    stored = catalog.read(song["id"])
+    song = catalog.put(
+        "song", stored["source"], song | {"artist": "Океан Ельзи"}
+    )
+    state["row"] = record(song)
+    result = body(
+        get(
+            service,
+            "getLyrics",
+            artist="  ОКЕАН   ЕЛЬЗИ  ",
+            title=song["title"].upper(),
+        )
+    )["lyrics"]
+    assert result["artist"] == "Океан Ельзи"
+    assert result["value"]
+    assert len(state["calls"]) == 1
+
+
+def test_legacy_outage_uses_same_stale_lyrics(lyrics_service):
+    service, song, state = lyrics_service
+    entries(service, song)
+    expire(service)
+    state["status"] = 503
+    result = body(
+        get(service, "getLyrics", artist=song["artist"], title=song["title"])
+    )["lyrics"]
+    assert "First <&>" in result["value"]
+    assert len(state["calls"]) == 2
+
+
 @pytest.mark.parametrize(
     "change",
     [

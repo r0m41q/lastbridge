@@ -9,7 +9,7 @@ def scalar(value):
 
 def xml_values(parent, values):
     for key, value in values.items():
-        if parent.tag == "line" and key == "value":
+        if parent.tag in ("line", "lyrics") and key == "value":
             parent.text = value
         elif isinstance(value, dict):
             xml_values(SubElement(parent, key), value)

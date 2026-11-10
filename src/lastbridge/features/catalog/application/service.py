@@ -31,6 +31,9 @@ class Catalog:
     def read_source(self, source, kind):
         return self.repository.read_source(source, kind)
 
+    def song_named(self, artist, title):
+        return self.repository.song_named(artist, title)
+
     def put(self, *args, **kwargs):
         return self.repository.put(*args, **kwargs)
 
