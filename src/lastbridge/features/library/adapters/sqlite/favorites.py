@@ -1,11 +1,15 @@
 import time
 
+from lastbridge.features.library.adapters.sqlite.loves import LoveIntentWriter
 from lastbridge.shared.recordings import recording_key
 
 
 class FavoriteRepository:
-    def __init__(self, database, policy):
+    def __init__(
+        self, database, policy, love_intents: LoveIntentWriter | None = None
+    ):
         self.database, self.policy = database, policy
+        self.love_intents = love_intents
 
     def sources(self):
         with self.database.connection() as connection:
@@ -89,6 +93,10 @@ class FavoriteRepository:
                     ).fetchone():
                         return False
                 else:
+                    if key is not None and self.love_intents is not None:
+                        self.love_intents.record(
+                            connection, user_id, stored, enabled
+                        )
                     if enabled:
                         connection.execute(
                             "DELETE FROM favorite_removals "

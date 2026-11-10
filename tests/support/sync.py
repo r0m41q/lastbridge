@@ -110,6 +110,18 @@ def transport(service, handler):
     return run(service, scenario)
 
 
+def love_steps(service, handler, count=1):
+    async def scenario():
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler)
+        ) as client:
+            service[1].state.services.sync.remote.client = client
+            for _ in range(count):
+                await service[1].state.services.sync.love_one()
+
+    return run(service, scenario)
+
+
 def report(service, song=None, **params):
     song = song or search(service)["song"][0]
     return get(

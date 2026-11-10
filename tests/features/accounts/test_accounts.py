@@ -49,7 +49,7 @@ def test_migration_restart_encryption_and_recovery(tmp_path):
     assert store.repository.database.path.stat().st_mode & 0o777 == 0o600
     assert (tmp_path / "credentials.key").stat().st_mode & 0o777 == 0o600
     with store.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
     store.reset_password("admin", "replacement browser password")
     assert store.session(token) is None
     assert store.client_user({"apiKey": secret}) is None
@@ -74,7 +74,7 @@ def test_missing_or_wrong_key_does_not_silently_replace_credentials(tmp_path):
 def test_newer_database_refused(tmp_path):
     store = make_accounts(tmp_path)
     with store.repository.database.transaction() as connection:
-        connection.execute("PRAGMA user_version=16")
+        connection.execute("PRAGMA user_version=17")
     with pytest.raises(RuntimeError, match="newer"):
         make_accounts(tmp_path)
 
@@ -389,6 +389,7 @@ def test_management_bootstrap_and_reset_use_hidden_prompts(
 
     monkeypatch.setenv("LASTBRIDGE_DATA_DIR", str(tmp_path))
     monkeypatch.setattr("sys.argv", ["manage", "bootstrap-admin", "admin"])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("getpass.getpass", lambda _: PASSWORD)
     main()
     assert make_accounts(tmp_path).user("admin")["admin"]

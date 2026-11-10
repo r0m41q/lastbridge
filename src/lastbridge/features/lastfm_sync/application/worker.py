@@ -14,6 +14,8 @@ async def run(service, operation):
             if service.remote.configured:
                 if recover and operation == service.deliver_one:
                     service.repository.recover_delivery()
+                if recover and operation == service.love_one:
+                    service.repository.recover_loves()
                 recover = False
                 await operation()
         except StorageError, OSError:

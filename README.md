@@ -93,6 +93,19 @@ limit. Ordinary playlists store metadata only. Linking Last.fm automatically
 imports matched loved tracks as favorites and queues their downloads; manage the
 import from **Last.fm sync** in the web UI.
 
+Liking or unliking a song in a Subsonic client also loves or unloves it on your
+linked Last.fm account using signed
+[track.love](https://www.last.fm/api/show/track.love) and
+[track.unlove](https://www.last.fm/api/show/track.unlove) requests.
+Changes are queued with the local favorite and delivered in the background,
+independently of audio downloads. Temporary failures retry after restarts;
+rapid changes converge on your latest choice. Delivery remains bound to the
+original Last.fm account if you relink to another account. Check status or retry
+failed changes under **Song likes** on **Last.fm sync**. Importing loved tracks
+does not send them back; pausing imports does not pause outbound likes.
+Album and artist hearts remain local. Existing favorites are not bulk-exported;
+liking a song again queues it if it has not been sent before.
+
 Import a public YouTube playlist from **Playlists** in the browser. To add a
 shared chart, choose **Everyone** in the visibility field, preview it, and
 confirm **Add shared chart**. Preview shows unavailable or unmatched tracks

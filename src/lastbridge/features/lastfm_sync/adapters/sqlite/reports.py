@@ -30,6 +30,12 @@ class ReportRepository:
                 "WHERE user_id=? AND target=? AND state='blocked'",
                 (user_id, target),
             )
+            connection.execute(
+                "UPDATE love_outbox SET state='pending',"
+                "next_attempt=0,error=NULL "
+                "WHERE user_id=? AND target=? AND state='blocked'",
+                (user_id, target),
+            )
         return True
 
     def record(self, user, values, prepared, now):
@@ -147,6 +153,17 @@ class ReportRepository:
                         "error=NULL WHERE user_id=?",
                         (user_id,),
                     )
+            elif action == "retry-loves":
+                user = connection.execute(
+                    "SELECT lastfm_name FROM users WHERE id=?", (user_id,)
+                ).fetchone()
+                target = (user["lastfm_name"] or "").casefold() if user else ""
+                connection.execute(
+                    "UPDATE love_outbox SET state='pending',next_attempt=0,"
+                    "error=NULL WHERE user_id=? AND state IN "
+                    "('failed','blocked','pending') AND target=?",
+                    (user_id, target),
+                )
             elif action in ("retry-scrobbles", "retry-uncertain"):
                 user = connection.execute(
                     "SELECT lastfm_name FROM users WHERE id=?", (user_id,)
@@ -204,6 +221,10 @@ class ReportRepository:
 
     def startup(self):
         with self.database.transaction() as connection:
+            connection.execute(
+                "UPDATE love_outbox SET state='pending',next_attempt=0 "
+                "WHERE state='running'"
+            )
             # A crash/cancellation after dispatch cannot prove remote failure.
             connection.execute(
                 "UPDATE scrobbles SET state='uncertain',error="

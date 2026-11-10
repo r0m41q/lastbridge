@@ -17,3 +17,6 @@ class LastfmSession:
 
     async def scrobble(self, secret, report):
         return await self.lastfm.scrobble(self.client, secret, report)
+
+    async def set_love(self, secret, job):
+        return await self.lastfm.set_love(self.client, secret, job)

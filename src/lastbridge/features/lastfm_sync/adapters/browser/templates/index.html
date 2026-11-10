@@ -3,6 +3,32 @@
 {% block content %}
   <div class="dashboard">
     <section class="panel">
+      <h2>Song likes</h2>
+      <p>Song likes and unlikes in your Subsonic client update your linked Last.fm account. Delivery runs in the background and retries temporary failures. Album and artist hearts stay local. Pausing loved-track imports does not pause these changes.</p>
+      <p>Latest 100 song changes:</p>
+      <div class="table-scroll">
+        <table>
+          <tr>
+            <th scope="col">Track</th>
+            <th scope="col">Account</th>
+            <th scope="col">Action</th>
+            <th scope="col">Status</th>
+            <th scope="col">Attempts</th>
+          </tr>
+          {% for love in loves %}
+            <tr>
+              <td>{{ love.artist }} — {{ love.title }}</td>
+              <td>{{ love.target }}</td>
+              <td>{{ 'Love' if love.enabled else 'Unlove' }}</td>
+              <td>{{ love.state }}: {{ love.error or '' }}</td>
+              <td>{{ love.attempts }}</td>
+            </tr>
+          {% endfor %}
+        </table>
+      </div>
+      {{ action('/lastfm/sync/retry-loves', user.csrf, 'Retry song changes for my linked account') }}
+    </section>
+    <section class="panel">
       {% if user.link_status != 'linked' %}
         <p>Relink Last.fm on your account page to resume delivery.</p>
       {% endif %}

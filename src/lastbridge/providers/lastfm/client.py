@@ -126,6 +126,21 @@ class Lastfm:
                 "Last.fm delivery is uncertain; review before retrying.",
             ) from None
 
+    async def set_love(self, client, secret, job):
+        parameters = {
+            "method": "track.love" if job["enabled"] else "track.unlove",
+            "sk": secret,
+            "artist": job["artist"],
+            "track": job["title"],
+        }
+        values = await self.request(
+            client, self.signed(parameters), write=True
+        )
+        if values not in ({}, {"lfm": {"status": "ok"}}):
+            raise LastfmRequestError(
+                "uncertain", "Last.fm love change could not be confirmed."
+            )
+
     async def loved(self, client, name, page):
         values = await self.request(
             client,

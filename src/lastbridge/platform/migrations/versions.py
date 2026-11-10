@@ -6,6 +6,7 @@ from lastbridge.platform.migrations.audio import (
 )
 from lastbridge.platform.migrations.discovery import SCHEMA as MIX_SCHEMA
 from lastbridge.platform.migrations.imports import SCHEMA as IMPORT_SCHEMA
+from lastbridge.platform.migrations.loves import SCHEMA as LOVE_SCHEMA
 from lastbridge.platform.migrations.lyrics import SCHEMA as LYRICS_SCHEMA
 from lastbridge.platform.migrations.media import SCHEMA as MEDIA_SCHEMA
 from lastbridge.platform.migrations.playlists import SCHEMA as PLAYLIST_SCHEMA
@@ -45,7 +46,7 @@ SCHEMA = (
 def migrate(database, credentials):
     with database.transaction() as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 15:
+        if version > 16:
             raise RuntimeError("Database is newer than this application")
         if version == 0:
             for statement in SCHEMA:
@@ -199,6 +200,10 @@ def migrate(database, credentials):
             )
             connection.execute("DROP TABLE audio_settings_old")
             connection.execute("PRAGMA user_version=15")
+        if version < 16:
+            for statement in LOVE_SCHEMA:
+                connection.execute(statement)
+            connection.execute("PRAGMA user_version=16")
         check = connection.execute(
             "SELECT value FROM credential_check"
         ).fetchone()[0]

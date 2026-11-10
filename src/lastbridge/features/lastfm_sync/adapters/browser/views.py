@@ -13,5 +13,6 @@ def sync_view(sync, user):
         "counts": sorted(counts.items()),
         "items": items,
         "reports": reports,
+        "loves": sync.loves(user["id"]),
         "import_actions": IMPORT_ACTIONS,
     }

@@ -5,6 +5,7 @@ from lastbridge.features.lastfm_sync.application.delivery import (
     ScrobbleDelivery,
 )
 from lastbridge.features.lastfm_sync.application.imports import LovedImports
+from lastbridge.features.lastfm_sync.application.loves import LoveDelivery
 from lastbridge.features.lastfm_sync.application.ports import (
     CatalogAccess,
     LibraryAccess,
@@ -34,6 +35,7 @@ class LastfmSync:
             remote,
         )
         self.delivery = ScrobbleDelivery(repository, remote, cipher)
+        self.love_delivery = LoveDelivery(repository, remote, cipher)
         self.imports = LovedImports(repository, catalog, library, remote)
         self.tasks = []
         self.wake = asyncio.Event()
@@ -55,12 +57,16 @@ class LastfmSync:
     def snapshot(self, user_id):
         return self.repository.snapshot(user_id)
 
+    def loves(self, user_id):
+        return self.repository.love_reports(user_id)
+
     async def start(self):
         for user in self.repository.startup():
             self.linked(user["id"])
         self.tasks = [
             asyncio.create_task(self.loop(self.deliver_one)),
             asyncio.create_task(self.loop(self.import_one)),
+            asyncio.create_task(self.loop(self.love_one)),
         ]
 
     async def loop(self, operation):
@@ -71,6 +77,9 @@ class LastfmSync:
 
     async def import_one(self):
         return await self.imports.import_one()
+
+    async def love_one(self):
+        return await self.love_delivery.deliver_one()
 
     async def close(self):
         for task in self.tasks:

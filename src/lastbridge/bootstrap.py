@@ -41,6 +41,9 @@ from lastbridge.features.discovery.adapters.sqlite.repository import (
     MixRepository,
 )
 from lastbridge.features.discovery.application.service import Mixes
+from lastbridge.features.lastfm_sync.adapters.sqlite.loves import (
+    LoveIntentWriter,
+)
 from lastbridge.features.lastfm_sync.adapters.sqlite.repository import (
     SyncRepository,
 )
@@ -214,7 +217,9 @@ async def bootstrap(
                 ArtworkLookup(repository),
             )
             library = Library(
-                LibraryRepository(database, audio_settings.policy),
+                LibraryRepository(
+                    database, audio_settings.policy, LoveIntentWriter()
+                ),
                 catalog,
                 audio_settings.policy,
             )
