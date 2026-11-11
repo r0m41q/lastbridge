@@ -27,12 +27,18 @@ from lastbridge.features.playlists.adapters.subsonic.handlers import (
 from lastbridge.features.radio.adapters.subsonic.handlers import (
     HANDLERS as radio,
 )
+from lastbridge.features.radio.adapters.subsonic.stations import (
+    HANDLERS as stations,
+)
+
+RADIO_STATION_METHODS = frozenset(stations)
 
 HANDLERS = {
     **catalog,
     **lyrics,
     **lastfm_sync,
     **radio,
+    **stations,
     **library,
     **accounts,
     **playlists,

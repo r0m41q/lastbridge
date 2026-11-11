@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
-from lastbridge.shared.errors import StorageError
+from lastbridge.shared.errors import CatalogError, StorageError
 from lastbridge.transport.browser.dependencies import (
     current_user,
     protected_form,
@@ -106,4 +106,63 @@ async def retry_chart(request: Request, item_id: str):
     user, _ = await protected_form(request)
     administrator(user)
     services(request).administration.charts(item_id)
+    return RedirectResponse("/admin", status_code=303)
+
+
+def action_failure(user, error):
+    status = (
+        {50: 403, 70: 404}.get(error.code, 400)
+        if isinstance(error, CatalogError)
+        else 503
+    )
+    return message(
+        Page("Changes not saved"),
+        error.message
+        if isinstance(error, CatalogError)
+        else "Storage unavailable; try again.",
+        status,
+        user=user,
+        back_url="/admin",
+        back_label="Back to administration",
+    )
+
+
+@router.post("/admin/stations")
+async def new_station(request: Request):
+    user, values = await protected_form(request)
+    administrator(user)
+    try:
+        services(request).administration.stations.save(user, values)
+    except (CatalogError, StorageError) as error:
+        return action_failure(user, error)
+    return RedirectResponse("/admin", status_code=303)
+
+
+@router.post("/admin/stations/{item_id}/{action}")
+async def station_action(request: Request, item_id: str, action: str):
+    user, values = await protected_form(request)
+    administrator(user)
+    stations = services(request).administration.stations
+    try:
+        if action == "save":
+            stations.save(user, values, item_id)
+        elif action == "delete":
+            stations.remove(user, item_id)
+        else:
+            raise HTTPException(404, "Action not found")
+    except (CatalogError, StorageError) as error:
+        return action_failure(user, error)
+    return RedirectResponse("/admin", status_code=303)
+
+
+@router.post("/admin/charts/{item_id}/rename")
+async def rename_chart(request: Request, item_id: str):
+    user, values = await protected_form(request)
+    administrator(user)
+    try:
+        services(request).administration.rename_chart(
+            user, item_id, values.get("name", "")
+        )
+    except (CatalogError, StorageError) as error:
+        return action_failure(user, error)
     return RedirectResponse("/admin", status_code=303)

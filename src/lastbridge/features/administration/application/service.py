@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 from lastbridge.features.administration.application.ports import (
     AudioSettingsStore,
     DashboardStore,
+    RadioStations,
     StorageUsage,
 )
 from lastbridge.features.administration.domain.accounting import (
@@ -24,6 +25,8 @@ class Administration:
         mixes: Callable[[int], None],
         sync: Callable[[int, str], None],
         charts: Callable[[str], None],
+        rename_chart: Callable[[dict, str, str], None],
+        stations: RadioStations,
         audio_settings: AudioSettingsStore,
         configure_audio: Callable[[AudioSettings], Awaitable[None]],
         audio_ceilings: tuple[int, int, int],
@@ -31,6 +34,7 @@ class Administration:
         self.repository, self.storage = repository, storage
         self.downloads, self.mixes = downloads, mixes
         self.sync, self.charts = sync, charts
+        self.rename_chart, self.stations = rename_chart, stations
         self.audio_settings = audio_settings
         self.configure_audio = configure_audio
         self.audio_ceilings = audio_ceilings
@@ -45,6 +49,7 @@ class Administration:
             usage.pop("policy"),
         )
         return report | {
+            "stations": self.stations.list(),
             "audio": self.audio_settings.snapshot()
             .within_ceilings(self.audio_ceilings)
             .as_dict(),

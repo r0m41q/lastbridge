@@ -2,7 +2,7 @@ from lastbridge.transport.http.context import services
 from lastbridge.transport.subsonic.serialization import reply
 
 
-def authenticate(request, values):
+def authenticate(request, values, *, require_link=True):
     token_auth = "t" in values or "s" in values
     mechanisms = sum(("p" in values, token_auth, "apiKey" in values))
     if mechanisms > 1 or ("apiKey" in values and "u" in values):
@@ -15,7 +15,7 @@ def authenticate(request, values):
         return reply(values, code, "Wrong username or client password")
     if not values.get("v") or not values.get("c"):
         return reply(values, 10, "Required parameters: v and c")
-    if user["link_status"] not in ("linked", "relink"):
+    if require_link and user["link_status"] not in ("linked", "relink"):
         return reply(
             values, 50, "Link Last.fm in your Lastbridge browser account"
         )

@@ -94,8 +94,60 @@
     <div class="actions"><a class="button secondary" href="/playlists">Add a shared chart</a></div>
     {% for chart in charts %}<div class="playlist-row">
       <div class="playlist-info"><h3><a href="/playlist-imports/{{ chart.id }}">{{ chart.title }}</a></h3><p>{{ 'Refreshing' if chart.running else 'Refresh failed; previous snapshot kept' if chart.error else 'Scheduled' }}</p></div>
+      <form method="post" action="/admin/charts/{{ chart.id }}/rename">
+        {{ csrf(user.csrf) }}
+        <label>Custom name
+          <input name="name" maxlength="200"
+                 value="{{ chart.custom_title or '' }}"
+                 placeholder="{{ chart.source_title }}">
+        </label>
+        <p>Leave blank to use the YouTube playlist name.</p>
+        <button type="submit">Save name</button>
+      </form>
       {% if chart.error and not chart.running %}<div class="actions">{{ action('/admin/charts/' ~ chart.id ~ '/retry', user.csrf, 'Retry refresh') }}</div>{% endif %}
     </div>{% else %}<p>No shared charts.</p>{% endfor %}
+  </section>
+  <section class="panel">
+    {{ heading('Internet radio stations') }}
+    <p>Add a direct audio stream URL. Stations are shared with all users;
+      compatible music apps play the stream directly.</p>
+    <form method="post" action="/admin/stations">
+      {{ csrf(user.csrf) }}
+      <label>Station name
+        <input name="name" required maxlength="200">
+      </label>
+      <label>Stream URL
+        <input type="url" name="streamUrl" required maxlength="2048"
+               placeholder="https://radio.example/stream.mp3">
+      </label>
+      <label>Homepage URL (optional)
+        <input type="url" name="homepageUrl" maxlength="2048">
+      </label>
+      <button type="submit">Add station</button>
+    </form>
+    {% for station in stations %}
+      <details>
+        <summary>{{ station.name }}</summary>
+        <form method="post" action="/admin/stations/{{ station.id }}/save">
+          {{ csrf(user.csrf) }}
+          <label>Station name
+            <input name="name" required maxlength="200"
+                   value="{{ station.name }}">
+          </label>
+          <label>Stream URL
+            <input type="url" name="streamUrl" required maxlength="2048"
+                   value="{{ station.streamUrl }}">
+          </label>
+          <label>Homepage URL (optional)
+            <input type="url" name="homepageUrl" maxlength="2048"
+                   value="{{ station.get('homePageUrl', '') }}">
+          </label>
+          <button type="submit">Save station</button>
+        </form>
+        {{ action('/admin/stations/' ~ station.id ~ '/delete',
+                  user.csrf, 'Delete station', danger=true) }}
+      </details>
+    {% else %}<p>No internet radio stations.</p>{% endfor %}
   </section>
   <section class="panel" aria-labelledby="audio-heading">
     <h2 id="audio-heading">Audio providers and limits</h2>

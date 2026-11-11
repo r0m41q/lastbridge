@@ -253,3 +253,63 @@ def test_shared_refresh_has_no_dependency_on_user_activity(imported_service):
     assert len(calls) == 2
     owner = user(service)
     assert imports.get(owner, item_id)["token"] is None
+
+
+def test_chart_custom_name_survives_refresh_and_can_be_reset(imported_service):
+    service, imports, state, _ = imported_service
+    item_id = accept(imported_service, shared=True)
+    owner = user(service)
+    before = imports.get(owner, item_id)
+    job = imports.repository.claim(item_id)
+    leased = imports.get(owner, item_id)
+    imports.rename_shared(owner, item_id, "  My chart <&>  ")
+    renamed = imports.get(owner, item_id)
+    assert renamed["title"] == "My chart <&>"
+    assert renamed["custom_title"] == "My chart <&>"
+    assert renamed["next_attempt"] == leased["next_attempt"]
+    assert renamed["token"] == job["token"]
+    assert renamed["source"] == before["source"]
+    assert renamed["entries"] == before["entries"]
+    state["title"] = "New YouTube title"
+    state["tracks"], state["trackCount"] = [SONG], 1
+    snapshot = run(service, imports.provider.load, job["source"])
+    imports.repository.publish(job, snapshot)
+    assert imports.get(owner, item_id)["title"] == "My chart <&>"
+    for account in ("admin", "alice"):
+        response = get(
+            service, "getPlaylist", id=item_id, apiKey=service[3][account]
+        )
+        playlist = body(response)["playlist"]
+        assert playlist["name"] == "My chart <&>"
+        assert playlist["songCount"] == 1
+        lists = body(get(service, "getPlaylists", apiKey=service[3][account]))[
+            "playlists"
+        ]["playlist"]
+        assert next(p for p in lists if p["id"] == item_id)["name"] == (
+            "My chart <&>"
+        )
+    xml = fromstring(get(service, "getPlaylist", id=item_id, f="xml").content)
+    assert xml.find("{*}playlist").get("name") == "My chart <&>"
+    imports.rename_shared(owner, item_id, "")
+    assert imports.get(owner, item_id)["title"] == "New YouTube title"
+    assert imports.get(owner, item_id)["custom_title"] is None
+    state["title"] = "Later YouTube title"
+    run(service, imports.refresh, owner, item_id)
+    assert imports.get(owner, item_id)["title"] == "Later YouTube title"
+
+
+def test_chart_rename_role_validation_and_private_isolation(imported_service):
+    service, imports, _, _ = imported_service
+    owner = user(service)
+    chart = accept(imported_service, shared=True)
+    private = accept(imported_service)
+    draft = run(service, imports.preview, owner, URL, True)
+    with pytest.raises(CatalogError, match="Administrator"):
+        imports.rename_shared(user(service, "alice"), chart, "Not allowed")
+    for item_id in (private, draft, "missing"):
+        with pytest.raises(CatalogError, match="Shared chart not found"):
+            imports.rename_shared(owner, item_id, "Not a chart")
+    for name in (None, "x" * 201, "Bad\x00title"):
+        with pytest.raises(CatalogError, match="Invalid parameter"):
+            imports.rename_shared(owner, chart, name)
+    assert imports.get(owner, chart)["custom_title"] is None

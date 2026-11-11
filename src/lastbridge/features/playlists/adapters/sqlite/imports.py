@@ -14,7 +14,10 @@ class ImportRepository:
 
     @staticmethod
     def decode(row):
-        return dict(row) | {"entries": json.loads(row["entries"])}
+        return dict(row) | {
+            "entries": json.loads(row["entries"]),
+            "title": row["custom_title"] or row["title"],
+        }
 
     def visible(self, user):
         with self.database.connection() as connection:
@@ -167,6 +170,16 @@ class ImportRepository:
                 "AND error IS NOT NULL",
                 (item_id,),
             )
+
+    def rename_shared(self, item_id, name):
+        with self.database.transaction() as connection:
+            changed = connection.execute(
+                "UPDATE playlist_imports SET custom_title=?,updated=? "
+                "WHERE id=? AND shared=1 AND ready=1",
+                (name, time.time(), item_id),
+            ).rowcount
+            if not changed:
+                raise CatalogError(70, "Shared chart not found")
 
     def recover(self):
         with self.database.transaction() as connection:

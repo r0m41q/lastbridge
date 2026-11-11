@@ -164,3 +164,40 @@ def test_unlinked_listener_cannot_access_playlist_browser(service, path):
         response = client.post(path, data={"csrf": token})
     assert response.status_code == 403
     assert response.json() == {"detail": "Link Last.fm first"}
+
+
+def test_unlinked_admin_can_rename_shared_chart(imported_service):
+    service, imports, _, _ = imported_service
+    client, app, _, _ = service
+    token = browser(service)
+    preview = client.post(
+        "/playlist-imports/preview",
+        data={"csrf": token, "url": URL, "scope": "shared"},
+    )
+    item_id = preview.url.path.rsplit("/", 1)[1]
+    imports.confirm(user(service), item_id)
+    with app.state.services.database.transaction() as connection:
+        connection.execute(
+            "UPDATE users SET link_status='unlinked' WHERE username='admin'"
+        )
+    response = client.post(
+        f"/admin/charts/{item_id}/rename",
+        data={"csrf": token, "name": 'My chart <script> "quoted"'},
+    )
+    assert response.status_code == 200
+    assert "My chart &lt;script&gt; &#34;quoted&#34;" in response.text
+    assert 'value="My chart <script>' not in response.text
+    assert imports.get(user(service), item_id)["title"] == (
+        'My chart <script> "quoted"'
+    )
+    assert "My chart &lt;script&gt;" in client.get("/playlists").text
+    assert (
+        "My chart &lt;script&gt;"
+        in client.get("/playlist-imports/" + item_id).text
+    )
+    response = client.post(
+        f"/admin/charts/{item_id}/rename",
+        data={"csrf": token, "name": ""},
+    )
+    assert response.status_code == 200
+    assert imports.get(user(service), item_id)["title"] == "Chart <&>"

@@ -58,6 +58,12 @@ Resetting also revokes that user's browser sessions and client password.
 Administrators can also reset passwords from **Administration**, which shows
 users, saved storage, cache and disk usage, and job progress with retry controls.
 
+Manage **Internet radio stations** in Administration: add a station name, direct
+HTTP/HTTPS stream URL and optional homepage, or edit/delete existing stations.
+Stations are shared with all users through the standard Subsonic internet radio
+endpoints. Compatible clients play streams directly; station management does
+not require linking Last.fm.
+
 ## Configuration and updates
 
 See [.env.example](.env.example) for deployment settings. The audio size
@@ -109,6 +115,8 @@ before saving. Imports are read-only, metadata-only snapshots; copy one to edit
 or keep it downloaded. Shared charts refresh once every 24 hours after their
 last successful refresh, including while users are inactive. Private imports
 refresh on request.
+Administrators can set a shared chart's custom name from **Administration**.
+The name survives track refreshes; clear it to use the current YouTube title.
 Up to 1,000 entries and 50 exact-audio fallback searches per import are supported.
 Private YouTube accounts and Spotify/Apple Music integrations are not supported.
 

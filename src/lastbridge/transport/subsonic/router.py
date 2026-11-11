@@ -7,7 +7,10 @@ from lastbridge.features.discovery.adapters.subsonic.activity import (
 from lastbridge.shared.errors import CatalogError
 from lastbridge.transport.http.parameters import parameters
 from lastbridge.transport.subsonic.authentication import authenticate
-from lastbridge.transport.subsonic.methods import HANDLERS
+from lastbridge.transport.subsonic.methods import (
+    HANDLERS,
+    RADIO_STATION_METHODS,
+)
 from lastbridge.transport.subsonic.parameters import folder
 from lastbridge.transport.subsonic.serialization import reply
 
@@ -54,7 +57,9 @@ async def endpoint(request: Request, method: str):
     # state or upstream request is involved in this exception.
     if method == "getOpenSubsonicExtensions":
         return reply(values, payload={"openSubsonicExtensions": EXTENSIONS})
-    user = authenticate(request, values)
+    user = authenticate(
+        request, values, require_link=method not in RADIO_STATION_METHODS
+    )
     if isinstance(user, Response):
         return user
     try:

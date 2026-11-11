@@ -142,6 +142,10 @@ def test_normal_user_cannot_operate_admin_controls(service, action):
         "/admin/users/2/downloads",
         "/admin/charts/example/retry",
         "/admin/audio",
+        "/admin/stations",
+        "/admin/stations/example/save",
+        "/admin/stations/example/delete",
+        "/admin/charts/example/rename",
     ],
 )
 def test_admin_actions_require_csrf_and_same_origin(service, path):

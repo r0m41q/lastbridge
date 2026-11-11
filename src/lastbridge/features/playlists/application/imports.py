@@ -10,6 +10,7 @@ from lastbridge.features.playlists.application.import_ports import (
     SnapshotProvider,
 )
 from lastbridge.features.playlists.domain.imports import playlist_source
+from lastbridge.features.playlists.domain.rules import label
 from lastbridge.shared.errors import CatalogError, StorageError
 
 
@@ -72,6 +73,12 @@ class Imports:
 
     def retry_shared(self, item_id):
         self.repository.retry_shared(item_id)
+
+    def rename_shared(self, user, item_id, name):
+        if not user["admin"]:
+            raise CatalogError(50, "Administrator access required")
+        name = label(name, "name", 200, empty=True).strip()
+        self.repository.rename_shared(item_id, name or None)
 
     def confirm(self, user, item_id):
         return self.repository.confirm(user, item_id)

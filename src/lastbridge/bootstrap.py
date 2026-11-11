@@ -107,7 +107,11 @@ from lastbridge.features.radio.adapters.catalog import RadioCatalog
 from lastbridge.features.radio.adapters.sqlite.repository import (
     RadioRepository,
 )
+from lastbridge.features.radio.adapters.sqlite.stations import (
+    StationRepository,
+)
 from lastbridge.features.radio.application.service import Radio
+from lastbridge.features.radio.application.stations import Stations
 from lastbridge.platform.credentials import Credentials
 from lastbridge.platform.database import Database
 from lastbridge.platform.migrations import migrate
@@ -135,6 +139,7 @@ class Services:
     sync: LastfmSync
     mixes: Mixes
     radio: Radio
+    stations: Stations
     playlists: Playlists
     password_limit: asyncio.Semaphore
     administration: Administration
@@ -334,6 +339,7 @@ async def bootstrap(
             library,
             LastfmSession(lastfm, client),
         )
+        stations = Stations(StationRepository(database))
         resources.push_async_callback(radio.close)
         lyrics = Lyrics(LyricsRepository(database), catalog, Lrclib(client))
         resources.push_async_callback(lyrics.close)
@@ -388,6 +394,7 @@ async def bootstrap(
             sync=sync,
             mixes=mixes,
             radio=radio,
+            stations=stations,
             playlists=playlists,
             password_limit=asyncio.Semaphore(2),
             administration=Administration(
@@ -397,6 +404,8 @@ async def bootstrap(
                 mixes=mixes.request,
                 sync=sync.control,
                 charts=imports.retry_shared,
+                rename_chart=imports.rename_shared,
+                stations=stations,
                 audio_settings=audio_settings_repository,
                 configure_audio=configure_audio,
                 audio_ceilings=(
