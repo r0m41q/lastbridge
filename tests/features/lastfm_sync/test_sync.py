@@ -2,6 +2,7 @@ import asyncio
 import copy
 import hashlib
 import time
+from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlencode
 
 import httpx
@@ -98,6 +99,61 @@ def test_reports_deduplicate_atomically_and_keep_private_history(sync_service):
 
 
 @pytest.mark.parametrize(
+    "suffix, offset",
+    [
+        ("Z", 0),
+        (".123Z", 0),
+        (".123456789Z", 0),
+        ("+02:00", 7200),
+        ("-05:00", -18000),
+    ],
+)
+def test_navic_iso_reports_normalize_deduplicate_and_deliver(
+    sync_service, suffix, offset
+):
+    service = sync_service
+    song = search(service)["song"][0]
+    stamp = int(time.time()) - 180
+    iso = (
+        datetime.fromtimestamp(stamp + offset, UTC).strftime(
+            "%Y-%m-%dT%H:%M:%S"
+        )
+        + suffix
+    )
+    assert (
+        body(
+            get(
+                service,
+                "scrobble",
+                id=song["id"],
+                time=iso,
+                submission="false",
+            )
+        )["status"]
+        == "ok"
+    )
+    assert rows(service) == []
+    assert rows(service, "playback_starts")[0]["timestamp"] == stamp
+    for value in (iso, stamp * 1000 + 123):
+        assert (
+            body(get(service, "scrobble", id=song["id"], time=value))["status"]
+            == "ok"
+        )
+    assert len(rows(service)) == 1
+    assert rows(service)[0]["timestamp"] == stamp
+    assert rows(service)[0]["state"] == "pending"
+
+    def handler(request):
+        values = parse_qs(request.content.decode())
+        assert values["timestamp"] == [str(stamp)]
+        assert values["track"] == [song["title"]]
+        return httpx.Response(200, json=accepted())
+
+    transport(service, handler)
+    assert rows(service)[0]["state"] == "sent"
+
+
+@pytest.mark.parametrize(
     "params",
     [
         {},
@@ -106,6 +162,12 @@ def test_reports_deduplicate_atomically_and_keep_private_history(sync_service):
         {"id": "SONG", "time": "x"},
         {"id": "SONG", "time": "-1"},
         {"id": "SONG", "time": "999999999999999"},
+        {"id": "SONG", "time": "2020-01-01T10:00:00"},
+        {"id": "SONG", "time": "2020-01-01"},
+        {"id": "SONG", "time": "2026-02-30T10:00:00Z"},
+        {"id": "SONG", "time": "9999-12-31T23:59:59Z"},
+        {"id": "SONG", "time": "1970-01-01T00:00:00Z"},
+        {"id": "SONG", "time": "1969-12-31T23:59:59Z"},
         {"id": "SONG", "submission": "yes"},
     ],
 )
@@ -779,7 +841,8 @@ def test_actual_background_delivery_wakes_after_report(sync_service):
     assert delivered == [("admin-session", SONG["title"])]
 
 
-def test_form_batch_pairs_times_and_xml_response(sync_service):
+@pytest.mark.parametrize("iso_time", [False, True])
+def test_form_batch_pairs_times_and_xml_response(sync_service, iso_time):
     service = sync_service
     first = search(service)["song"][0]
     second = service[1].state.services.catalog.song(
@@ -793,7 +856,12 @@ def test_form_batch_pairs_times_and_xml_response(sync_service):
         ("id", first["id"]),
         ("id", second["id"]),
         ("time", str(stamp * 1000)),
-        ("time", str((stamp + 300) * 1000)),
+        (
+            "time",
+            datetime.fromtimestamp(stamp + 300, UTC).isoformat()
+            if iso_time
+            else str((stamp + 300) * 1000),
+        ),
     ]
     response = service[0].post(
         "/rest/scrobble.view",
@@ -813,6 +881,25 @@ def test_form_batch_pairs_times_and_xml_response(sync_service):
         == "10"
     )
     assert len(rows(service)) == 2
+
+
+@pytest.mark.parametrize("submission", ["true", "false"])
+def test_invalid_iso_in_batch_rejects_all_reports(sync_service, submission):
+    service = sync_service
+    song = search(service)["song"][0]
+    response = get(
+        service,
+        "scrobble",
+        id=[song["id"], song["id"]],
+        time=[str((int(time.time()) - 180) * 1000), "2020-01-01T10:00:00"],
+        submission=submission,
+    )
+    assert body(response)["error"] == {
+        "code": 10,
+        "message": "Invalid parameter: time",
+    }
+    assert rows(service) == []
+    assert rows(service, "playback_starts") == []
 
 
 def test_removal_and_reheart_clear_original_import_credit_key(sync_service):
