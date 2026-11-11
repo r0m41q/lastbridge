@@ -145,7 +145,55 @@ class ImportRepository:
     def fresh(progress):
         # Reuse recent exact lookup results across refreshes. Source rows and
         # the ordered output are always rebuilt from the latest playlist.
-        return {"matches": progress.get("matches", {})}
+        return {
+            "matches": progress.get("matches", {}),
+            "decisions": progress.get("decisions", {}),
+        }
+
+    def decide(self, user, item_id, source_key, song_id, acknowledge):
+        with self.database.transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM playlist_imports WHERE id=? AND "
+                "(owner_id=? OR (shared=1 AND ?))",
+                (item_id, user["id"], bool(user["admin"])),
+            ).fetchone()
+            if row is None:
+                raise CatalogError(70, "Import not found")
+            if row["shared"] and not user["admin"]:
+                raise CatalogError(50, "Administrator access required")
+            if (
+                not row["ready"]
+                and row["state"] == "complete"
+                and row["updated"] < time.time() - 3600
+            ):
+                raise CatalogError(70, "Preview expired")
+            progress = json.loads(row["progress"])
+            entries = progress.get("entries", []) + json.loads(row["entries"])
+            entries = [e for e in entries if e.get("source_key") == source_key]
+            if not entries:
+                raise CatalogError(10, "Entry unavailable")
+            decisions = progress.setdefault("decisions", {})
+            if song_id:
+                candidates = [
+                    c
+                    for e in entries
+                    for c in e.get("candidates", [])
+                    if c["song_id"] == song_id
+                ]
+                if not candidates:
+                    raise CatalogError(10, "Candidate unavailable")
+                if candidates[0]["mismatch"] and not acknowledge:
+                    raise CatalogError(10, "Acknowledge recording mismatch")
+                decisions[source_key] = candidates[0]
+            else:
+                decisions.pop(source_key, None)
+            progress = self.fresh(progress)
+            connection.execute(
+                "UPDATE playlist_imports SET state='queued',phase='fetch',"
+                "progress=?,processed=0,total=0,matched=0,attempts=0,"
+                "token=NULL,error=NULL,next_attempt=0,queued_at=? WHERE id=?",
+                (json.dumps(progress), time.time(), item_id),
+            )
 
     def request(self, item_id):
         with self.database.transaction() as connection:

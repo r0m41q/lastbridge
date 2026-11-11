@@ -71,17 +71,27 @@ async def report(request: Request, item_id: str):
         ).strftime("%Y-%m-%d %H:%M UTC"),
         playable=sum(bool(e.get("song_id")) for e in entries),
         entry_count=len(entries),
+        entries=entries,
     )
 
 
 @router.post("/playlist-imports/{item_id}/{action}")
 async def change(request: Request, item_id: str, action: str):
-    user, _ = await protected_form(request)
+    user, values = await protected_form(request)
     require_playlist_access(user)
     imports = services(request).playlists.imports
     target = "/playlists"
     try:
-        if action == "confirm":
+        if action == "choose":
+            imports.decide(
+                user,
+                item_id,
+                values.get("source_key", ""),
+                values.get("song_id", ""),
+                values.get("acknowledge") == "yes",
+            )
+            target = "/playlist-imports/" + item_id
+        elif action == "confirm":
             imports.confirm(user, item_id)
         elif action == "refresh":
             await imports.refresh(user, item_id)

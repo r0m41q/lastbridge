@@ -128,6 +128,17 @@ for manual action, including scheduled shared-chart refreshes.
 Up to 1,000 entries are supported, with two exact-audio lookups at a time.
 Each lookup has a deadline; there is no three-minute whole-import deadline.
 Recent lookup results are cached between batches and refreshes.
+Video upload decorations are removed before matching official audio releases.
+Equivalent releases are accepted; distinct versions require review. Known
+explicit/clean status follows the source. When unknown, explicit audio is
+preferred, then unknown status, then clean audio.
+Open the import report to inspect unmatched entries and listen to suggested
+recordings on YouTube Music. Fuzzy suggestions require manual selection;
+artist, version or explicitness mismatches also require acknowledgment.
+Shared charts can be corrected by an administrator; private imports by their
+owner. Choices survive refreshes while the source track identity is unchanged.
+Clear a choice in the report to return to automatic matching. Each correction
+queues a rebuild and keeps the published snapshot until it succeeds.
 Private YouTube accounts and Spotify/Apple Music integrations are not supported.
 
 First playback waits for the complete track to download. Audio is served without

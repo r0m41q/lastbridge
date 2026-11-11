@@ -31,12 +31,36 @@
     <section class="panel">
       <h2>{{ 'Published tracks' if item.ready else 'Preview tracks' }}</h2>
       <ol>
-        {% for entry in item.entries if item.ready or item.state == 'complete' %}
-          <li>{{ entry.artist }}{% if entry.artist %} — {% endif %}{{ entry.title }}{% if entry.reason %} <span class="muted">({{ entry.reason }})</span>{% endif %}</li>
+        {% for entry in entries %}
+          <li>
+            {{ entry.artist }} — {{ entry.title }}
+            {% if entry.reason %}<span class="muted">({{ entry.reason }})</span>{% endif %}
+            {% if entry.get('reviewed') %}<span class="muted">Manually selected</span>{% endif %}
+            {% if not item.shared or user.admin %}
+              {% for candidate in entry.get('candidates', []) %}
+                <details>
+                  <summary>{{ candidate.artist }} — {{ candidate.title }}</summary>
+                  <p>{{ candidate.album }} · {{ candidate.duration or 'Unknown duration' }} seconds · {{ 'Explicit' if candidate.explicit == true else 'Clean' if candidate.explicit == false else 'Unknown explicitness' }}</p>
+                  <p><a href="https://music.youtube.com/watch?v={{ candidate.source | urlencode }}" rel="noreferrer" target="_blank">Listen on YouTube Music</a></p>
+                  <form method="post" action="/playlist-imports/{{ item.id }}/choose">
+                    <input type="hidden" name="csrf" value="{{ user.csrf }}">
+                    <input type="hidden" name="source_key" value="{{ entry.source_key }}">
+                    <input type="hidden" name="song_id" value="{{ candidate.song_id }}">
+                    {% if candidate.mismatch %}<label><input type="checkbox" name="acknowledge" value="yes" required> I accept the artist, version or explicitness mismatch</label>{% endif %}
+                    <button type="submit">Use this recording</button>
+                  </form>
+                </details>
+              {% endfor %}
+              {% if entry.get('reviewed') %}
+                <form method="post" action="/playlist-imports/{{ item.id }}/choose">
+                  <input type="hidden" name="csrf" value="{{ user.csrf }}">
+                  <input type="hidden" name="source_key" value="{{ entry.source_key }}">
+                  <button type="submit">Clear manual selection</button>
+                </form>
+              {% endif %}
+            {% endif %}
+          </li>
         {% endfor %}
-        {% if not item.ready and item.state != 'complete' %}
-          {% for entry in item.progress.get('entries', []) %}<li>{{ entry.artist }}{% if entry.artist %} — {% endif %}{{ entry.title }}{% if entry.reason %} <span class="muted">({{ entry.reason }})</span>{% endif %}</li>{% endfor %}
-        {% endif %}
       </ol>
     </section>
     <a href="/playlists">Back to playlists</a>
