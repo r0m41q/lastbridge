@@ -1,5 +1,7 @@
+import asyncio
 import time
 from collections import OrderedDict
+from weakref import WeakValueDictionary
 
 from lastbridge.features.catalog.application.ports import (
     CatalogStore,
@@ -24,6 +26,8 @@ class Catalog:
         self.artwork_lookup = artwork_lookup
         self.searches = OrderedDict()
         self.artist_tops = OrderedDict()
+        self.artist_locks = WeakValueDictionary()
+        self.artist_retries = OrderedDict()
 
     def read(self, item_id, kind=None):
         return self.repository.read(item_id, kind)
@@ -141,6 +145,10 @@ class Catalog:
         return self.documents.radio(rows)
 
     async def detail(self, item_id, kind):
+        if kind == "artist":
+            lock = self.artist_locks.setdefault(item_id, asyncio.Lock())
+            async with lock:
+                return await self.artist_detail(item_id)
         stored = self.read(item_id, kind)
         document = stored["document"]
         if kind == "song" or stored["complete"]:
@@ -162,38 +170,99 @@ class Catalog:
                 "songCount": len(songs),
                 "duration": sum(s.get("duration", 0) for s in songs),
             }
-        else:
-            try:
-                self.remember_tops(stored, row)
-            except CatalogError:
-                # Optional top songs must not break album enumeration.
-                pass
-            albums = []
-            seen = set()
+        return self.put(
+            kind, stored["source"], document, thumbnail(row), complete=True
+        )
+
+    async def artist_detail(self, item_id):
+        stored = self.read(item_id, "artist")
+        document = stored["document"]
+        snapshot = stored.get("snapshot") or {}
+        ttl = 86400 if snapshot.get("complete") else 300
+        if (
+            snapshot.get("version") == 1
+            and 0 <= time.time() - snapshot.get("refreshed_at", 0) < ttl
+        ) or self.artist_retries.get(item_id, 0) > time.monotonic():
+            return document
+        try:
+            row = await self.provider.fetch(
+                {
+                    "operation": "artist",
+                    "source": stored["source"],
+                    "releases": True,
+                }
+            )
+            if not isinstance(row.get("name"), str) or not row["name"]:
+                raise CatalogError()
+            albums, seen = [], set()
+            complete = row.get("discography_complete") is True
             for group in ("albums", "singles"):
-                for release in (row.get(group) or {}).get("results", [])[:100]:
+                shelf = row.get(group) or {}
+                if not isinstance(shelf, dict):
+                    raise CatalogError()
+                releases = shelf.get("results", [])
+                if not isinstance(releases, list):
+                    raise CatalogError()
+                for release in releases[:1000]:
+                    if not isinstance(release, dict):
+                        complete = False
+                        continue
+                    credits = release.get("artists")
+                    if not isinstance(credits, list) or not any(
+                        isinstance(a, dict) and a.get("name") for a in credits
+                    ):
+                        credits = [
+                            {"id": stored["source"], "name": row["name"]}
+                        ]
                     album = self.album(
                         release
                         | {
-                            "artists": [
-                                {
-                                    "id": stored["source"],
-                                    "name": document["name"],
-                                }
-                            ]
+                            "artists": credits,
+                            "type": release.get("type")
+                            or ("Album" if group == "albums" else "Single"),
                         }
                     )
                     if album and album["id"] not in seen:
                         albums.append(album)
                         seen.add(album["id"])
+                    elif album is None:
+                        complete = False
+            if not complete:
+                albums.extend(
+                    a for a in document.get("album", []) if a["id"] not in seen
+                )
+            try:
+                self.remember_tops(stored, row)
+            except CatalogError:
+                pass
             document = document | {
-                "name": row.get("name") or document["name"],
-                "album": albums,
+                "name": row["name"],
+                "album": [
+                    {k: v for k, v in a.items() if k != "song"} for a in albums
+                ],
                 "albumCount": len(albums),
             }
-        return self.put(
-            kind, stored["source"], document, thumbnail(row), complete=True
-        )
+            self.artist_retries.pop(item_id, None)
+            return self.put(
+                "artist",
+                stored["source"],
+                document,
+                thumbnail(row),
+                complete=True,
+                snapshot={
+                    "version": 1,
+                    "complete": complete,
+                    "refreshed_at": time.time(),
+                },
+            )
+        except CatalogError:
+            if "album" not in document:
+                raise
+            self.artist_retries[item_id] = time.monotonic() + 300
+            self.artist_retries.move_to_end(item_id)
+            while len(self.artist_retries) > 128:
+                self.artist_retries.popitem(last=False)
+            return document
 
     async def artwork(self, client, item_id):
         return await self.artwork_lookup.fetch(client, item_id)

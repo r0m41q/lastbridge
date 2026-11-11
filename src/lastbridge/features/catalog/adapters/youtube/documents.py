@@ -31,11 +31,30 @@ class MetadataDocuments(RadioDocuments):
 
     def credits(self, row):
         artists = row.get("artists") or []
-        names = [a["name"] for a in artists if a.get("name")]
-        first = self.artist(artists[0]) if artists else None
+        artists = [
+            a
+            for a in artists
+            if isinstance(a, dict)
+            and isinstance(a.get("name"), str)
+            and a["name"]
+        ]
+        names = [a["name"] for a in artists]
+        resolved = [self.artist(a) for a in artists]
+        first = resolved[0] if resolved else None
         return {
             "artist": ", ".join(names) or None,
             "artistId": first["id"] if first else None,
+            **(
+                {
+                    "artists": [
+                        {"id": a["id"], "name": a["name"]}
+                        for a in resolved
+                        if a
+                    ]
+                }
+                if any(resolved)
+                else {}
+            ),
         }
 
     def album(self, row):
@@ -43,14 +62,26 @@ class MetadataDocuments(RadioDocuments):
         name = row.get("title") or row.get("name")
         if not source or not source.startswith("MPRE") or not name:
             return None
+        release_type = str(row.get("type", "")).strip().casefold()
+        year = number(row.get("year"))
         return self.put(
             "album",
             source,
             {
                 "name": name,
-                "songCount": 0,
+                "songCount": number(row.get("trackCount")) or 0,
                 "duration": 0,
-                "year": number(row.get("year")),
+                "year": year,
+                **(
+                    {"releaseTypes": [release_type]}
+                    if release_type in ("album", "single", "ep")
+                    else {}
+                ),
+                **(
+                    {"releaseDate": {"year": year}}
+                    if year and year <= 9999
+                    else {}
+                ),
                 **self.credits(row),
             },
             thumbnail(row),

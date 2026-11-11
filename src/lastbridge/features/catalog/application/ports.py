@@ -6,7 +6,14 @@ class CatalogStore(Protocol):
     def read_source(self, source: str, kind: str) -> dict: ...
 
     def put(
-        self, kind, source, document, image=None, complete=False
+        self,
+        kind,
+        source,
+        document,
+        image=None,
+        complete=False,
+        *,
+        snapshot=None,
     ) -> dict: ...
     def artists_named(self, name: str) -> list[dict]: ...
     def song_named(self, artist: str, title: str) -> str | None: ...

@@ -4,6 +4,9 @@ import logging
 import re
 import sys
 
+from lastbridge.features.catalog.adapters.youtube.artists import (
+    artist_releases,
+)
 from lastbridge.features.catalog.adapters.youtube.suggestions import search
 from lastbridge.shared.recordings import normalize, normalize_title
 
@@ -86,6 +89,8 @@ def execute(payload):
     if operation == "album":
         return music.get_album(payload["source"])
     if operation == "artist":
+        if payload.get("releases"):
+            return artist_releases(music, payload["source"])
         return music.get_artist(payload["source"])
     if operation == "playlist":
         result = music.get_playlist(payload["source"], limit=1001)

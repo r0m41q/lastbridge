@@ -70,7 +70,11 @@ def test_relations_artists_albums_songs_and_restart(catalog_service):
     assert artist_detail["id"] == artist["id"]
     store = make_accounts(app.state.config.data_dir)
     restored = make_catalog(store, provider)
-    assert asyncio.run(restored.detail(album["id"], "album")) == detail
+    # Artist enumeration adds the previously unknown release type without
+    # losing the hydrated album's tracks or changing its identity.
+    assert asyncio.run(restored.detail(album["id"], "album")) == (
+        detail | {"releaseTypes": ["album"]}
+    )
     assert restored.read(song["id"])["source"] == VIDEO
     # Sparse subsequent search data must preserve hydrated track/year/ordering.
     restored.song(SONG)

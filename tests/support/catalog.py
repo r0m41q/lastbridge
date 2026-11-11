@@ -95,6 +95,7 @@ class FakeProvider:
                 "thumbnails": THUMBNAILS,
                 # Subscription channel identity differs from the browse ID.
                 "channelId": "UC_DIFFERENT_SUBSCRIPTION_ID",
+                "discography_complete": True,
                 "albums": {"results": [{"browseId": ALBUM, "title": "RAM"}]},
                 "singles": {"results": []},
             }

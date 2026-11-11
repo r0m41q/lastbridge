@@ -15,6 +15,14 @@ class CatalogRepository:
         self.database = database
         self.document_policy = document_policy
 
+    def stored(self, row):
+        document = json.loads(row["document"])
+        snapshot = document.pop("_artist_snapshot", None)
+        return dict(row) | {
+            "document": self.document_policy(row["kind"], document),
+            "snapshot": snapshot,
+        }
+
     def artists_named(self, name):
         with self.database.connection() as connection:
             return [
@@ -53,11 +61,7 @@ class CatalogRepository:
             ).fetchone()
         if row is None or (kind is not None and row["kind"] != kind):
             raise CatalogError(70, "Catalog item not found")
-        return dict(row) | {
-            "document": self.document_policy(
-                row["kind"], json.loads(row["document"])
-            )
-        }
+        return self.stored(row)
 
     def read_source(self, source, kind):
         with self.database.connection() as connection:
@@ -67,13 +71,18 @@ class CatalogRepository:
             ).fetchone()
         if row is None:
             raise CatalogError(70, "Catalog item not found")
-        return dict(row) | {
-            "document": self.document_policy(
-                row["kind"], json.loads(row["document"])
-            )
-        }
+        return self.stored(row)
 
-    def put(self, kind, source, document, image=None, complete=False):
+    def put(
+        self,
+        kind,
+        source,
+        document,
+        image=None,
+        complete=False,
+        *,
+        snapshot=None,
+    ):
         if not isinstance(source, str) or not SOURCE.fullmatch(source):
             raise CatalogError(70, "Catalog item unavailable")
         item_id = identity(kind, source)
@@ -89,6 +98,8 @@ class CatalogRepository:
             if old:
                 # Sparse search rows must not erase hydrated album/song data.
                 prior = json.loads(old["document"])
+                old_snapshot = prior.pop("_artist_snapshot", None)
+                snapshot = snapshot if snapshot is not None else old_snapshot
                 document = (
                     document | prior
                     if old["complete"] and not complete
@@ -110,7 +121,11 @@ class CatalogRepository:
                     item_id,
                     kind,
                     source,
-                    json.dumps(document),
+                    json.dumps(
+                        document | {"_artist_snapshot": snapshot}
+                        if kind == "artist" and snapshot is not None
+                        else document
+                    ),
                     image,
                     int(complete),
                     int(time.time()),

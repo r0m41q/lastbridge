@@ -20,6 +20,15 @@ search predictions first, followed by regular results. These appear in your
 client's existing search results; no separate autocomplete UI is required.
 If predictions are unavailable, regular search remains available.
 
+Artist pages enumerate YouTube Music's album and single lists, following
+continuation pages up to 1,000 releases per shelf within the metadata request
+deadline. Artist snapshots refresh after 24 hours, including a lazy upgrade of
+older cached previews. Partial results preserve previously known releases and
+retry after five minutes; provider failures keep an existing snapshot available.
+Releases retain separate provider IDs, available artist credits, release types
+(album/single/EP), and provider release years. Clients can group these types;
+older clients may show one combined list. Album tracks load on opening an album.
+
 ## Run with Docker Compose
 
 ```sh
