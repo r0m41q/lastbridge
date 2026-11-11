@@ -1,3 +1,8 @@
+import io
+
+from yt_dlp.networking.common import Response
+from yt_dlp.networking.exceptions import HTTPError
+
 from lastbridge.shared.errors import CatalogError
 from support.build_audio import make_audio
 
@@ -11,6 +16,21 @@ THIRD = "d8CbKd69KT8"
 
 
 AUDIO = bytes(range(256)) * 32
+
+
+def youtube_http_error(
+    status=403,
+    url="https://rr1.googlevideo.com/videoplayback?token=secret",
+    retry="120",
+):
+    return HTTPError(
+        Response(
+            io.BytesIO(b"secret response body"),
+            url,
+            {"Retry-After": retry, "Set-Cookie": "secret"},
+            status=status,
+        )
+    )
 
 
 class FakeAudio:

@@ -190,7 +190,7 @@ def main():
             except ProviderError as error:
                 result = {"error": str(error)}
             except Exception as error:
-                DiagnosticLogger(diagnostics).error(str(error))
+                DiagnosticLogger(diagnostics).failure(error)
                 diagnostics["exception_type"] = type(error).__name__
                 if isinstance(error, subprocess.CalledProcessError):
                     diagnostics["returncode"] = error.returncode
