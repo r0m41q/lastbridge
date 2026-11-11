@@ -1,6 +1,8 @@
 """Import previews, access rules and one refresh per shared source."""
 
 import asyncio
+import logging
+import time
 from datetime import UTC, datetime
 
 from lastbridge.features.playlists.application.import_ports import (
@@ -9,9 +11,14 @@ from lastbridge.features.playlists.application.import_ports import (
     ImportStore,
     SnapshotProvider,
 )
-from lastbridge.features.playlists.domain.imports import playlist_source
+from lastbridge.features.playlists.domain.imports import (
+    Snapshot,
+    playlist_source,
+)
 from lastbridge.features.playlists.domain.rules import label
 from lastbridge.shared.errors import CatalogError, StorageError
+
+logger = logging.getLogger(__name__)
 
 
 def timestamp(value):
@@ -30,6 +37,8 @@ class Imports:
         self.catalog, self.library = catalog, library
         self.task = None
         self.slot = asyncio.Lock()
+        self.wake = asyncio.Event()
+        self.active = None
 
     def rows(self, user):
         return self.repository.visible(user)
@@ -64,15 +73,29 @@ class Imports:
     async def preview(self, user, url, shared=False):
         if shared and not user["admin"]:
             raise CatalogError(50, "Administrator access required")
-        source = playlist_source(url)
-        if self.slot.locked():
-            raise CatalogError(0, "Playlist importer busy; retry shortly")
-        async with self.slot, asyncio.timeout(180):
-            snapshot = await self.provider.load(source)
-        return self.repository.draft(user, source, shared, snapshot)
+        item_id = self.repository.enqueue(user, playlist_source(url), shared)
+        self.wake.set()
+        return item_id
+
+    def queue(self, user, offset=0, limit=50):
+        return self.repository.queue(user, offset, limit)
+
+    def control(self, user, item_id, action):
+        self.repository.control(user, item_id, action)
+        self.cancel_active(item_id)
+        self.wake.set()
+
+    def cancel_active(self, item_id):
+        if (
+            self.active
+            and self.active[0] == item_id
+            and not self.active[1].cancelling()
+        ):
+            self.active[1].cancel()
 
     def retry_shared(self, item_id):
         self.repository.retry_shared(item_id)
+        self.wake.set()
 
     def rename_shared(self, user, item_id, name):
         if not user["admin"]:
@@ -92,32 +115,91 @@ class Imports:
     def remove(self, user, item_id):
         self.writable(user, item_id)
         self.repository.remove(item_id)
+        self.cancel_active(item_id)
 
     async def refresh(self, user, item_id):
         row = self.writable(user, item_id)
         if not row["ready"]:
             raise CatalogError(10, "Confirm the preview first")
-        if self.slot.locked():
-            raise CatalogError(0, "Playlist importer busy; retry shortly")
-        async with self.slot:
-            job = self.repository.claim(item_id)
-            if job is None:
-                raise CatalogError(0, "Refresh pending; retry shortly")
-            if not await self.load(job):
-                raise CatalogError(0, "Refresh failed; previous snapshot kept")
+        self.repository.request(item_id)
+        self.wake.set()
 
     async def load(self, job):
+        started = time.monotonic()
+        progress = job["progress"]
+        phase = job["phase"]
+        logger.info(
+            "Playlist import started id=%s phase=%s processed=%s total=%s",
+            job["id"],
+            phase,
+            job["processed"],
+            job["total"],
+        )
         try:
-            async with asyncio.timeout(180):
-                snapshot = await self.provider.load(job["source"])
-            self.repository.publish(job, snapshot)
+            if phase == "fetch":
+                progress = await self.provider.prepare(job["source"], progress)
+                if not self.repository.checkpoint(job, progress):
+                    return False
+                phase = "resolve"
+            while len(progress["entries"]) < len(progress["tracks"]):
+                progress = await self.provider.batch(progress)
+                if not self.repository.checkpoint(job, progress):
+                    return False
+                logger.debug(
+                    "Playlist import progress id=%s processed=%s total=%s",
+                    job["id"],
+                    len(progress["entries"]),
+                    len(progress["tracks"]),
+                )
+                await asyncio.sleep(0)
+            job["progress"] = progress
+            published = self.repository.publish(
+                job, Snapshot(progress["title"], progress["entries"])
+            )
+            if published:
+                logger.info(
+                    "Playlist import completed id=%s processed=%s "
+                    "elapsed_ms=%s",
+                    job["id"],
+                    len(progress["entries"]),
+                    int((time.monotonic() - started) * 1000),
+                )
+            return published
         except asyncio.CancelledError:
-            self.repository.failed(job)
+            # Token fencing leaves an explicit pause/cancel untouched.
+            self.repository.release(job)
             raise
-        except CatalogError, TimeoutError, StorageError:
-            self.repository.failed(job)
+        except (CatalogError, TimeoutError, StorageError) as error:
+            if isinstance(error, CatalogError):
+                reason = error.message
+                retry = error.code == 0
+            elif isinstance(error, TimeoutError):
+                reason, retry = "Provider request timed out", True
+            else:
+                reason, retry = "Could not save import progress", True
+            self.repository.failed(job, f"{phase}: {reason}", retry=retry)
+            logger.warning(
+                "Playlist import failed id=%s phase=%s processed=%s "
+                "error_type=%s code=%s elapsed_ms=%s",
+                job["id"],
+                phase,
+                len(progress.get("entries", [])),
+                type(error).__name__,
+                getattr(error, "code", "-"),
+                int((time.monotonic() - started) * 1000),
+            )
             return False
-        return True
+        except Exception as error:
+            self.repository.failed(
+                job, f"{phase}: Unexpected import worker error", retry=False
+            )
+            logger.error(
+                "Playlist import worker error id=%s phase=%s error_type=%s",
+                job["id"],
+                phase,
+                type(error).__name__,
+            )
+            return False
 
     async def refresh_one(self):
         if self.slot.locked():
@@ -126,16 +208,31 @@ class Imports:
             job = self.repository.claim()
             if job is None:
                 return False
-            await self.load(job)
+            task = asyncio.create_task(self.load(job))
+            self.active = (job["id"], task)
+            try:
+                await task
+            except asyncio.CancelledError:
+                if asyncio.current_task().cancelling():
+                    raise
+            finally:
+                self.active = None
             return True
 
     async def worker(self):
         while True:
+            self.wake.clear()
             try:
                 worked = await self.refresh_one()
             except StorageError:
+                logger.warning("Playlist import storage unavailable")
                 worked = False
-            await asyncio.sleep(0 if worked else 30)
+            if worked:
+                continue
+            try:
+                await asyncio.wait_for(self.wake.wait(), timeout=5)
+            except TimeoutError:
+                pass
 
     async def start(self):
         self.repository.recover()

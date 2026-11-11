@@ -89,11 +89,16 @@
     {% endif %}
   </section>
   <section class="panel">
+    {{ heading('Playlist import queue') }}
+    <p>View preview and refresh progress, pause, resume, cancel or retry jobs.</p>
+    <a class="button secondary" href="/admin/import-queue">Manage import queue</a>
+  </section>
+  <section class="panel">
     {{ heading('Shared YouTube charts') }}
     <p>Shared charts are added from the Playlists page. Paste a public YouTube playlist URL, choose <em>Everyone</em>, preview it, then confirm <em>Add shared chart</em>.</p>
     <div class="actions"><a class="button secondary" href="/playlists">Add a shared chart</a></div>
     {% for chart in charts %}<div class="playlist-row">
-      <div class="playlist-info"><h3><a href="/playlist-imports/{{ chart.id }}">{{ chart.title }}</a></h3><p>{{ 'Refreshing' if chart.running else 'Refresh failed; previous snapshot kept' if chart.error else 'Scheduled' }}</p></div>
+      <div class="playlist-info"><h3><a href="/playlist-imports/{{ chart.id }}">{{ chart.title }}</a></h3><p>{{ 'Scheduled' if chart.state == 'complete' else chart.state|capitalize }}{% if chart.total %} · {{ chart.processed }} / {{ chart.total }} processed{% endif %}</p>{% if chart.error %}<p>{{ chart.error }}; previous snapshot kept.</p>{% endif %}</div>
       <form method="post" action="/admin/charts/{{ chart.id }}/rename">
         {{ csrf(user.csrf) }}
         <label>Custom name

@@ -1,3 +1,5 @@
+import json
+
 from lastbridge.platform.migrations.audio import (
     DEFAULTS as AUDIO_DEFAULTS,
 )
@@ -5,6 +7,9 @@ from lastbridge.platform.migrations.audio import (
     SCHEMA as AUDIO_SCHEMA,
 )
 from lastbridge.platform.migrations.discovery import SCHEMA as MIX_SCHEMA
+from lastbridge.platform.migrations.import_queue import (
+    SCHEMA as IMPORT_QUEUE_SCHEMA,
+)
 from lastbridge.platform.migrations.imports import SCHEMA as IMPORT_SCHEMA
 from lastbridge.platform.migrations.loves import SCHEMA as LOVE_SCHEMA
 from lastbridge.platform.migrations.lyrics import SCHEMA as LYRICS_SCHEMA
@@ -47,7 +52,7 @@ SCHEMA = (
 def migrate(database, credentials):
     with database.transaction() as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 17:
+        if version > 18:
             raise RuntimeError("Database is newer than this application")
         if version == 0:
             for statement in SCHEMA:
@@ -218,6 +223,43 @@ def migrate(database, credentials):
                     "ALTER TABLE playlist_imports ADD COLUMN custom_title TEXT"
                 )
             connection.execute("PRAGMA user_version=17")
+        if version < 18:
+            columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(playlist_imports)"
+                )
+            }
+            for name, definition in IMPORT_QUEUE_SCHEMA.items():
+                if name not in columns:
+                    connection.execute(
+                        f"ALTER TABLE playlist_imports "
+                        f"ADD COLUMN {name} {definition}"
+                    )
+            if "state" not in columns:
+                for row in connection.execute(
+                    "SELECT id,entries,created FROM playlist_imports"
+                ).fetchall():
+                    entries = json.loads(row["entries"])
+                    connection.execute(
+                        "UPDATE playlist_imports SET processed=?,total=?,"
+                        "matched=?,queued_at=? WHERE id=?",
+                        (
+                            len(entries),
+                            len(entries),
+                            sum(bool(e.get("song_id")) for e in entries),
+                            row["created"],
+                            row["id"],
+                        ),
+                    )
+            connection.execute(
+                "UPDATE playlist_imports SET token=NULL WHERE state='complete'"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS playlist_import_queue ON "
+                "playlist_imports(state,next_attempt,queued_at)"
+            )
+            connection.execute("PRAGMA user_version=18")
         check = connection.execute(
             "SELECT value FROM credential_check"
         ).fetchone()[0]

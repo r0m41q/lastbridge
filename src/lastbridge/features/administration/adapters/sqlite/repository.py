@@ -92,7 +92,8 @@ class DashboardRepository:
                     "SELECT id,title AS source_title,"
                     "COALESCE(custom_title,title) AS title,"
                     "custom_title,updated,next_attempt,token IS NOT NULL "
-                    "AS running,error FROM playlist_imports "
+                    "AS running,state,processed,total,error "
+                    "FROM playlist_imports "
                     "WHERE shared=1 AND ready=1 ORDER BY title,id"
                 )
             ]

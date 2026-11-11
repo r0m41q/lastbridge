@@ -385,7 +385,7 @@ def test_migration_from_v1_preserves_accounts(tmp_path):
     migrated = make_accounts(tmp_path)
     assert migrated.user("admin")["admin"] == 1
     with migrated.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
         assert (
             connection.execute("SELECT count(*) FROM catalog").fetchone()[0]
             == 0
@@ -719,3 +719,33 @@ def test_song_persists_explicit_status_only_when_known(
         assert catalog.read(song["id"])["document"]["isExplicit"] is explicit
     else:
         assert "isExplicit" not in restored
+
+
+def test_paginated_playlist_has_its_own_metadata_deadline(monkeypatch):
+    original = asyncio.create_subprocess_exec
+    processes = []
+
+    async def worker(*args, **kwargs):
+        process = await original(
+            sys.executable,
+            "-c",
+            "import json, sys, time; json.load(sys.stdin); "
+            "time.sleep(0.15); print(json.dumps({'data': {'tracks': []}}))",
+            **kwargs,
+        )
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", worker)
+
+    async def scenario():
+        provider = MetadataProvider(timeout=0.03, playlist_timeout=2)
+        result = await provider.fetch({"operation": "playlist"})
+        assert result == {"tracks": []}
+        with pytest.raises(CatalogError):
+            await provider.fetch({"operation": "search"})
+        assert all(process.returncode is not None for process in processes)
+        assert provider.playlist_slots._value == 1
+        assert provider.slots._value == 2
+
+    asyncio.run(scenario())

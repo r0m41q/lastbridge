@@ -2,6 +2,7 @@
 {% from 'components/display.html' import heading %}
 {% from 'components/icons.html' import icon %}
 {% from 'components/forms.html' import action, csrf %}
+{% from 'components/import_jobs.html' import listing %}
 {% block content %}
   <div class="dashboard">
     <section class="panel">
@@ -15,6 +16,11 @@
         {% endif %}
         <button type="submit">Preview</button>
       </form>
+    </section>
+    <section>
+      <h2>Import queue</h2>
+      <p>Preview runs in the background. Open its report for progress, then confirm the completed preview to publish it.</p>
+      {{ listing(import_jobs, user, '/playlist-imports') }}
     </section>
     <section>
       <h2>Imported playlists</h2>

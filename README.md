@@ -117,7 +117,17 @@ last successful refresh, including while users are inactive. Private imports
 refresh on request.
 Administrators can set a shared chart's custom name from **Administration**.
 The name survives track refreshes; clear it to use the current YouTube title.
-Up to 1,000 entries and 50 exact-audio fallback searches per import are supported.
+Previews and manual refreshes enter a persistent queue instead of waiting in
+an HTTP request. Open **Administration → Playlist import queue** to see progress
+and pause, resume, cancel or retry jobs. The preview report has the same
+controls for its owner. Completed batches survive restarts; retry resumes the
+saved progress. A completed preview expires one hour after completion.
+Transient fetch or lookup failures get up to three attempts with a delay;
+failed refreshes keep the published snapshot. Paused and cancelled jobs wait
+for manual action, including scheduled shared-chart refreshes.
+Up to 1,000 entries are supported, with two exact-audio lookups at a time.
+Each lookup has a deadline; there is no three-minute whole-import deadline.
+Recent lookup results are cached between batches and refreshes.
 Private YouTube accounts and Spotify/Apple Music integrations are not supported.
 
 First playback waits for the complete track to download. Audio is served without

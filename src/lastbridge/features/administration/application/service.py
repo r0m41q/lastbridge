@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 from lastbridge.features.administration.application.ports import (
     AudioSettingsStore,
     DashboardStore,
+    ImportQueue,
     RadioStations,
     StorageUsage,
 )
@@ -27,6 +28,7 @@ class Administration:
         charts: Callable[[str], None],
         rename_chart: Callable[[dict, str, str], None],
         stations: RadioStations,
+        import_queue: ImportQueue,
         audio_settings: AudioSettingsStore,
         configure_audio: Callable[[AudioSettings], Awaitable[None]],
         audio_ceilings: tuple[int, int, int],
@@ -35,6 +37,7 @@ class Administration:
         self.downloads, self.mixes = downloads, mixes
         self.sync, self.charts = sync, charts
         self.rename_chart, self.stations = rename_chart, stations
+        self.import_queue = import_queue
         self.audio_settings = audio_settings
         self.configure_audio = configure_audio
         self.audio_ceilings = audio_ceilings
