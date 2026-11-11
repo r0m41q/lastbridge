@@ -1,6 +1,9 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
+from lastbridge.features.playlists.adapters.browser.access import (
+    require_playlist_access,
+)
 from lastbridge.features.playlists.adapters.browser.imports import (
     router as imports_router,
 )
@@ -22,8 +25,7 @@ async def playlists_page(request: Request):
     user = current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
-    if user["link_status"] not in ("linked", "relink"):
-        raise HTTPException(403, "Link Last.fm first")
+    require_playlist_access(user)
     return render(
         "playlists/index.html",
         Page("Playlists", "/playlists", "dashboard"),
@@ -35,8 +37,7 @@ async def playlists_page(request: Request):
 @router.post("/playlists/{action}")
 async def new_playlist(request: Request, action: str):
     user, values = await protected_form(request)
-    if user["link_status"] not in ("linked", "relink"):
-        raise HTTPException(403, "Link Last.fm first")
+    require_playlist_access(user)
     playlists = services(request).playlists
     try:
         if action == "create":
@@ -55,8 +56,7 @@ async def new_playlist(request: Request, action: str):
 @router.post("/playlists/{item_id}/{action}")
 async def playlist_action(request: Request, item_id: str, action: str):
     user, _ = await protected_form(request)
-    if user["link_status"] not in ("linked", "relink"):
-        raise HTTPException(403, "Link Last.fm first")
+    require_playlist_access(user)
     playlists = services(request).playlists
     try:
         if action in ("keep", "release"):

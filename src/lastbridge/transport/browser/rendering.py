@@ -65,6 +65,10 @@ def document(template: str, page: Page, *, user=None, **context) -> str:
         else NAV[:1]
     )
     if user is not None and user["admin"]:
+        if user["link_status"] not in ("linked", "relink"):
+            navigation = tuple(
+                item for item in NAV if item[0] in ("/", "/playlists")
+            )
         navigation = (*navigation, ("/admin", "Administration", "key"))
     return environment.get_template(template).render(
         page=page, user=user, navigation=navigation, **context

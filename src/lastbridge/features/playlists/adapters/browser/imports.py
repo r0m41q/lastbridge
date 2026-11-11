@@ -3,6 +3,9 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
+from lastbridge.features.playlists.adapters.browser.access import (
+    require_playlist_access,
+)
 from lastbridge.shared.errors import CatalogError
 from lastbridge.transport.browser.dependencies import (
     current_user,
@@ -12,11 +15,6 @@ from lastbridge.transport.browser.rendering import Page, render
 from lastbridge.transport.http.context import services
 
 router = APIRouter()
-
-
-def linked(user):
-    if user["link_status"] not in ("linked", "relink"):
-        raise HTTPException(403, "Link Last.fm first")
 
 
 def failure(error):
@@ -29,7 +27,7 @@ def failure(error):
 @router.post("/playlist-imports/preview")
 async def preview(request: Request):
     user, values = await protected_form(request)
-    linked(user)
+    require_playlist_access(user)
     if values.get("scope", "private") not in ("private", "shared"):
         raise HTTPException(400, "Invalid import visibility")
     try:
@@ -50,7 +48,7 @@ async def report(request: Request, item_id: str):
     user = current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
-    linked(user)
+    require_playlist_access(user)
     try:
         item = services(request).playlists.imports.get(user, item_id)
     except CatalogError as error:
@@ -73,7 +71,7 @@ async def report(request: Request, item_id: str):
 @router.post("/playlist-imports/{item_id}/{action}")
 async def change(request: Request, item_id: str, action: str):
     user, _ = await protected_form(request)
-    linked(user)
+    require_playlist_access(user)
     imports = services(request).playlists.imports
     target = "/playlists"
     try:
