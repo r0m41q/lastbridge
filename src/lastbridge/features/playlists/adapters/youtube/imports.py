@@ -6,7 +6,11 @@ import re
 import time
 
 from lastbridge.features.catalog.domain.documents import image_url
+from lastbridge.features.playlists.adapters.youtube.matching import (
+    PlaylistResolver,
+)
 from lastbridge.features.playlists.domain.imports import MAX_ENTRIES, Snapshot
+from lastbridge.features.playlists.domain.matching import VERSION, identity
 from lastbridge.shared.errors import CatalogError, ProviderError
 
 BATCH_SIZE = 10
@@ -14,8 +18,11 @@ LOOKUP_TIMEOUT = 30
 
 
 class PlaylistProvider:
-    def __init__(self, fetch, song, match):
+    def __init__(self, fetch, song, match=None):
         self.fetch, self.song, self.match = fetch, song, match
+        self.resolver = (
+            PlaylistResolver(fetch, song) if match is None else None
+        )
 
     async def prepare(self, source, previous=None):
         async with asyncio.timeout(125):
@@ -63,6 +70,13 @@ class PlaylistProvider:
             ],
             "entries": [],
             "matches": matches,
+            "resolver_version": VERSION,
+            "decisions": {
+                key: value
+                for key, value in (previous or {}).get("decisions", {}).items()
+                if key
+                in {identity(row) for row in tracks if isinstance(row, dict)}
+            },
         }
 
     @staticmethod
@@ -172,6 +186,16 @@ class PlaylistProvider:
         return entry, song, key
 
     async def batch(self, progress):
+        if (
+            self.resolver
+            and self.match is None
+            and progress.get("resolver_version") != VERSION
+        ):
+            progress = progress | {
+                "entries": [],
+                "matches": {},
+                "resolver_version": VERSION,
+            }
         # A failed or interrupted batch never mutates the saved checkpoint.
         result = progress | {
             "entries": list(progress["entries"]),
@@ -194,6 +218,46 @@ class PlaylistProvider:
 
         async def resolve(row, position):
             entry, song, key = self.entry(row, position)
+            if self.resolver and self.match is None and key is not None:
+                source_key = identity(row)
+                entry["source_key"] = source_key
+                decision = progress.get("decisions", {}).get(source_key)
+                if decision:
+                    entry.update(
+                        song_id=decision["song_id"],
+                        reason=None,
+                        reviewed=True,
+                        candidates=[decision],
+                    )
+                    return entry
+                if song is None:
+                    cache_key = "v2:" + source_key
+                    cached = matches.get(cache_key)
+                    if cached and cached["time"] <= time.time() - (
+                        86400 if cached["song"] else 300
+                    ):
+                        cached = None
+                    if cached is None:
+
+                        async def search():
+                            async with slots, asyncio.timeout(LOOKUP_TIMEOUT):
+                                self.resolver.fetch = self.fetch
+                                return await self.resolver.resolve(row)
+
+                        if cache_key not in pending:
+                            pending[cache_key] = asyncio.create_task(search())
+                        resolved = await asyncio.shield(pending[cache_key])
+                        cached = {"time": time.time(), **resolved}
+                        matches[cache_key] = cached
+                    song = cached["song"]
+                    entry.update(
+                        outcome=cached["outcome"],
+                        candidates=cached["candidates"],
+                        reason=cached["reason"],
+                    )
+                if song:
+                    entry.update(song_id=song["id"], reason=None)
+                return entry
             if song is None and key is not None:
                 cache_key = json.dumps(key)
                 cached = matches.get(cache_key)

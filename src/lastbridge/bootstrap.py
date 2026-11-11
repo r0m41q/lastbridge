@@ -363,7 +363,7 @@ async def bootstrap(
         imports = Imports(
             ImportRepository(database),
             PlaylistProvider(
-                catalog.provider.fetch, catalog.song, catalog.match_loved
+                catalog.provider.fetch, catalog.song
             ),
             catalog,
             library,
