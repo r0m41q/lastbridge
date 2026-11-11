@@ -6,6 +6,7 @@ pytest_plugins = (
     "support.artists",
     "support.audio",
     "support.library",
+    "support.history",
     "support.sync",
     "support.radio",
     "support.mixes",

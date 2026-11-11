@@ -44,19 +44,6 @@ class FavoriteRepository:
             (self.policy,),
         )
 
-    def plays(self, user_id):
-        with self.database.connection() as connection:
-            plays = {
-                row["song_id"]: (row["count"], row["last"])
-                for row in connection.execute(
-                    "SELECT song_id,count(*) AS count,MAX(timestamp) AS last "
-                    "FROM scrobbles WHERE user_id=? GROUP BY song_id",
-                    (user_id,),
-                )
-            }
-
-        return plays
-
     def change(self, user_id, prepared, enabled, imported, now):
         with self.database.transaction() as connection:
             if imported is not None:

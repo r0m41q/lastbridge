@@ -25,7 +25,12 @@ async def albums(request, method, values, user):
         raise CatalogError(10, "Invalid album list type")
     size = integer(values, "size", 10, 500)
     offset = integer(values, "offset", 0)
-    albums = library.collection(user_id)["album"]
+    if kind in ("recent", "frequent"):
+        return album_response(
+            method, library.played_albums(user_id, kind, size, offset)
+        )
+    collection = library.collection(user_id)
+    albums = collection["album"]
     if kind == "byYear":
         start = integer(values, "fromYear", 0, 9999)
         end = integer(values, "toYear", 9999, 9999)
@@ -49,7 +54,7 @@ async def albums(request, method, values, user):
         # A user's save time determines newest, never another user's first
         # insertion into the shared metadata catalog.
         stars = library.stars(user_id)
-        saved_songs = library.collection(user_id)["song"]
+        saved_songs = collection["song"]
         albums.sort(
             key=lambda a: (
                 max(
@@ -74,11 +79,15 @@ async def albums(request, method, values, user):
         )
     elif kind == "random":
         random.shuffle(albums)
-    elif kind in ("recent", "frequent", "highest"):
-        # Album history aggregation and ratings remain future work.
+    elif kind == "highest":
+        # Album ratings remain unsupported.
         albums = []
     stop = offset + size
     albums = albums[offset:stop]
+    return album_response(method, albums)
+
+
+def album_response(method, albums):
     if method == "getAlbumList":
         albums = [directory_album(a) for a in albums]
     return {

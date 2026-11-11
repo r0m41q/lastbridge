@@ -81,7 +81,8 @@ async def search(request, method, values, user):
         result[kind] = results[kind][offset:stop]
     if method == "search2":
         result["album"] = [directory_album(a) for a in result["album"]]
-    result = library.decorate(user_id, result)
+    if query:
+        result = library.decorate(user_id, result)
     return {
         "searchResult2" if method == "search2" else "searchResult3": result
     }

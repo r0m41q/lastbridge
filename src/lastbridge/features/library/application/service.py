@@ -39,6 +39,19 @@ class Library:
             document, self.stars(user_id), self.repository.plays(user_id)
         )
 
+    def played_albums(self, user_id, kind, size, offset):
+        if kind not in ("recent", "frequent"):
+            raise CatalogError(10, "Invalid album history type")
+        if size == 0:
+            return []
+        rows = self.repository.album_history(user_id, kind, size, offset)
+        albums = []
+        for row in rows:
+            document = self.catalog.read(row["id"], "album")["document"]
+            albums.append({k: v for k, v in document.items() if k != "song"})
+        plays = {r["id"]: (r["count"], r["last"]) for r in rows}
+        return decorate(albums, self.stars(user_id), plays)
+
     async def change(self, user_id, targets, enabled, *, imported=None):
         if not targets:
             raise CatalogError(10, "Supply id, albumId or artistId")
@@ -184,4 +197,4 @@ class Library:
                     d["id"],
                 )
             )
-        return result
+        return decorate(result, stars, self.repository.plays(user_id))
