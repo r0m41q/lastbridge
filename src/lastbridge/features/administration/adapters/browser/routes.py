@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -166,3 +166,39 @@ async def rename_chart(request: Request, item_id: str):
     except (CatalogError, StorageError) as error:
         return action_failure(user, error)
     return RedirectResponse("/admin", status_code=303)
+
+
+@router.get("/admin/import-queue")
+async def import_queue(
+    request: Request, offset: int = Query(0, ge=0, le=1000000)
+):
+    user = administrator(current_user(request))
+    try:
+        jobs = services(request).administration.import_queue.queue(
+            user, offset, 51
+        )
+    except StorageError as error:
+        return action_failure(user, error)
+    return render(
+        "administration/import_queue.html",
+        Page("Playlist import queue", "/admin", "dashboard"),
+        user=user,
+        jobs=jobs[:50],
+        offset=offset,
+        more=len(jobs) > 50,
+    )
+
+
+@router.post("/admin/import-queue/{item_id}/{action}")
+async def control_import(request: Request, item_id: str, action: str):
+    user, _ = await protected_form(request)
+    administrator(user)
+    queue = services(request).administration.import_queue
+    try:
+        if action == "refresh":
+            await queue.refresh(user, item_id)
+        else:
+            queue.control(user, item_id, action)
+    except (CatalogError, StorageError) as error:
+        return action_failure(user, error)
+    return RedirectResponse("/admin/import-queue", status_code=303)

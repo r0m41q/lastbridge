@@ -7,8 +7,9 @@ from lastbridge.shared.errors import CatalogError
 
 
 class MetadataProvider:
-    def __init__(self, timeout=30):
+    def __init__(self, timeout=30, playlist_timeout=120):
         self.timeout = timeout
+        self.playlist_timeout = playlist_timeout
         self.slots = asyncio.Semaphore(2)
         # Artist pages fan out into album requests. Reserve independent bounded
         # capacity for the foreground radio action so those cannot starve it.
@@ -32,7 +33,13 @@ class MetadataProvider:
         # search categories concurrently; the third must be allowed to wait
         # for either of the two workers instead of failing after one second.
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + self.timeout
+        # Paginated playlists need a separate deadline from foreground search.
+        timeout = (
+            self.playlist_timeout
+            if payload.get("operation") == "playlist"
+            else self.timeout
+        )
+        deadline = loop.time() + timeout
         slots = (
             self.radio_slots
             if payload.get("operation") == "radio"
@@ -41,7 +48,7 @@ class MetadataProvider:
         if payload.get("operation") == "playlist":
             slots = self.playlist_slots
         try:
-            await asyncio.wait_for(slots.acquire(), timeout=self.timeout)
+            await asyncio.wait_for(slots.acquire(), timeout=timeout)
         except TimeoutError:
             raise CatalogError(
                 0, "Metadata provider busy; retry shortly"

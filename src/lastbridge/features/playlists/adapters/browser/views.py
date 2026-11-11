@@ -9,6 +9,7 @@ def playlists_view(services, user):
     return {
         "local": local,
         "imported": imported,
+        "import_jobs": services.playlists.imports.queue(user, limit=200),
         "downloaded": services.playlists.downloaded(user),
         "choices": choices,
     }

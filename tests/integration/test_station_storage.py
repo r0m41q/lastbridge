@@ -27,7 +27,7 @@ def test_version_sixteen_upgrade_and_station_chart_restart(imported_service):
         connection.execute("PRAGMA user_version=16")
     migrated = make_accounts(database.path.parent)
     with migrated.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == (
             "ok"
         )

@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse
 from lastbridge.features.playlists.adapters.browser.access import (
     require_playlist_access,
 )
-from lastbridge.shared.errors import CatalogError
+from lastbridge.shared.errors import CatalogError, StorageError
 from lastbridge.transport.browser.dependencies import (
     current_user,
     protected_form,
@@ -36,10 +36,8 @@ async def preview(request: Request):
         )
     except CatalogError as error:
         raise failure(error) from None
-    except TimeoutError:
-        raise HTTPException(
-            400, "Import timed out; try a smaller playlist"
-        ) from None
+    except StorageError:
+        raise HTTPException(503, "Import queue storage unavailable") from None
     return RedirectResponse("/playlist-imports/" + item_id, status_code=303)
 
 
@@ -53,6 +51,13 @@ async def report(request: Request, item_id: str):
         item = services(request).playlists.imports.get(user, item_id)
     except CatalogError as error:
         raise failure(error) from None
+    except StorageError:
+        raise HTTPException(503, "Import queue storage unavailable") from None
+    entries = (
+        item["progress"].get("entries", [])
+        if not item["ready"] and item["state"] != "complete"
+        else item["entries"]
+    )
     return render(
         "playlists/import.html",
         Page("Playlist import", "/playlists", "dashboard"),
@@ -64,7 +69,8 @@ async def report(request: Request, item_id: str):
         next_refresh=datetime.fromtimestamp(
             item["next_attempt"], UTC
         ).strftime("%Y-%m-%d %H:%M UTC"),
-        playable=sum(bool(e.get("song_id")) for e in item["entries"]),
+        playable=sum(bool(e.get("song_id")) for e in entries),
+        entry_count=len(entries),
     )
 
 
@@ -80,10 +86,15 @@ async def change(request: Request, item_id: str, action: str):
         elif action == "refresh":
             await imports.refresh(user, item_id)
             target = "/playlist-imports/" + item_id
+        elif action in ("pause", "resume", "cancel", "retry"):
+            imports.control(user, item_id, action)
+            target = "/playlist-imports/" + item_id
         elif action == "delete":
             imports.remove(user, item_id)
         else:
             raise HTTPException(404, "Action not found")
     except CatalogError as error:
         raise failure(error) from None
+    except StorageError:
+        raise HTTPException(503, "Import queue storage unavailable") from None
     return RedirectResponse(target, status_code=303)

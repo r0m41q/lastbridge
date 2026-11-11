@@ -1,0 +1,36 @@
+{% from 'components/forms.html' import action %}
+{% macro controls(item, user, base) -%}
+  <div class="actions">
+    {% if item.state in ('queued', 'running') %}
+      {{ action(base ~ '/' ~ item.id ~ '/pause', user.csrf, 'Pause') }}
+    {% elif item.state == 'paused' %}
+      {{ action(base ~ '/' ~ item.id ~ '/resume', user.csrf, 'Resume') }}
+    {% elif item.state in ('failed', 'cancelled') %}
+      {{ action(base ~ '/' ~ item.id ~ '/retry', user.csrf, 'Retry') }}
+    {% endif %}
+    {% if item.state in ('queued', 'running', 'paused', 'failed') %}
+      {{ action(base ~ '/' ~ item.id ~ '/cancel', user.csrf, 'Cancel', danger=true) }}
+    {% endif %}
+    {% if item.ready and item.state not in ('queued', 'running') and (item.shared or item.owner_id == user.id) %}
+      {{ action(base ~ '/' ~ item.id ~ '/refresh', user.csrf, 'Refresh now') }}
+    {% endif %}
+  </div>
+{%- endmacro %}
+{% macro progress(item) -%}
+  <p role="status"><strong>{{ item.state|capitalize }}</strong> · {{ 'Fetching playlist metadata' if item.phase == 'fetch' else 'Resolving tracks' if item.phase == 'resolve' else 'Preview ready' if not item.ready else 'Snapshot published' }}</p>
+  {% if item.total %}
+    <progress value="{{ item.processed }}" max="{{ item.total }}" aria-label="Tracks processed">{{ item.processed }} / {{ item.total }}</progress>
+    <p>{{ item.processed }} / {{ item.total }} processed · {{ item.matched }} matched · {{ item.processed - item.matched }} unavailable or unmatched</p>
+  {% endif %}
+  {% if item.error %}<p role="status">{{ item.error }}{% if item.state == 'queued' %} · Retry pending ({{ item.attempts }} / 3 attempts).{% endif %}</p>{% endif %}
+{%- endmacro %}
+{% macro listing(jobs, user, base) -%}
+  {% for item in jobs %}
+    <article class="panel">
+      <h3>{% if item.owner_id == user.id or item.shared %}<a href="/playlist-imports/{{ item.id }}">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</h3>
+      <p>{{ item.username }} · {{ 'Shared chart' if item.shared else 'Private import' }} · {{ 'Refresh' if item.ready else 'Preview' }}</p>
+      {{ progress(item) }}
+      {{ controls(item, user, base) }}
+    </article>
+  {% else %}<p>No playlist import jobs.</p>{% endfor %}
+{%- endmacro %}

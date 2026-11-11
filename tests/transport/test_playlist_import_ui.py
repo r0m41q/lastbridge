@@ -1,6 +1,7 @@
 import pytest
 from support.accounts import csrf, login
 from support.imports import URL, browser, user
+from support.library import run
 
 
 def test_browser_preview_confirm_csrf_roles_and_escaping(imported_service):
@@ -28,6 +29,9 @@ def test_browser_preview_confirm_csrf_roles_and_escaping(imported_service):
         },
     )
     assert response.status_code == 200
+    assert "Queued" in response.text
+    assert run(service, imports.refresh_one)
+    response = client.get(response.url)
     assert "Chart &lt;&amp;&gt;" in response.text
     assert "3 playable / 4 entries" in response.text
     assert "Unavailable" in response.text
@@ -101,6 +105,9 @@ def test_unlinked_admin_can_manage_shared_chart(imported_service):
         data={"csrf": token, "url": URL, "scope": "shared"},
     )
     assert response.status_code == 200
+    assert "Add shared chart" not in response.text
+    assert run(service, imports.refresh_one)
+    response = client.get(response.url)
     assert "Add shared chart" in response.text
     item_id = response.url.path.rsplit("/", 1)[1]
     assert not imports.get(user(service), item_id)["ready"]
@@ -129,6 +136,9 @@ def test_unlinked_admin_can_manage_shared_chart(imported_service):
         f"/playlist-imports/{item_id}/refresh", data={"csrf": token}
     )
     assert response.status_code == 200
+    assert "Updated shared chart" not in response.text
+    assert run(service, imports.refresh_one)
+    response = client.get(response.url)
     assert "Updated shared chart" in response.text
     assert len(calls) == 2
     assert (
@@ -175,6 +185,7 @@ def test_unlinked_admin_can_rename_shared_chart(imported_service):
         data={"csrf": token, "url": URL, "scope": "shared"},
     )
     item_id = preview.url.path.rsplit("/", 1)[1]
+    assert run(service, imports.refresh_one)
     imports.confirm(user(service), item_id)
     with app.state.services.database.transaction() as connection:
         connection.execute(

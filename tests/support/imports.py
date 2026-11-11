@@ -55,6 +55,7 @@ def accept(bundle, *, shared=False, name="admin"):
     service, imports, _, _ = bundle
     owner = user(service, name)
     item_id = run(service, imports.preview, owner, URL, shared)
+    run(service, imports.refresh_one)
     return imports.confirm(owner, item_id)
 
 
@@ -64,3 +65,48 @@ def due(service, item_id):
             "UPDATE playlist_imports SET next_attempt=0 WHERE id=?",
             (item_id,),
         )
+
+
+class ChartLookup:
+    """Recording resolver with observable concurrency and interruption."""
+
+    def __init__(self, catalog, block_from=None):
+        import asyncio
+
+        self.catalog = catalog
+        self.block_from = block_from
+        self.entered, self.gate = asyncio.Event(), asyncio.Event()
+        self.calls, self.active, self.maximum = [], 0, 0
+        self.error = None
+
+    async def __call__(self, artist, title):
+        import asyncio
+
+        index = int(title.removeprefix("Track "))
+        self.calls.append(title)
+        self.active += 1
+        self.maximum = max(self.maximum, self.active)
+        try:
+            await asyncio.sleep(0)
+            if self.error and index >= 10:
+                raise self.error
+            if self.block_from is not None and index >= self.block_from:
+                self.entered.set()
+                await self.gate.wait()
+            return self.catalog.song(
+                SONG | {"title": title, "videoId": f"{index:011d}"}
+            )
+        finally:
+            self.active -= 1
+
+
+def chart_tracks(count):
+    return [
+        SONG
+        | {
+            "title": f"Track {index}",
+            "videoId": f"{index:011d}",
+            "videoType": "MUSIC_VIDEO_TYPE_OMV",
+        }
+        for index in range(count)
+    ]

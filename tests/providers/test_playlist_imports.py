@@ -87,7 +87,7 @@ def test_community_video_requires_exact_audio_match_and_reports_ambiguity():
     assert len(stored) == 1 and len(looked_up) == 2
 
 
-def test_fallback_searches_are_bounded_and_duplicates_reuse_match():
+def test_fallback_searches_cover_all_entries_and_duplicates_reuse_match():
     calls = []
 
     async def fetch(payload):
@@ -103,10 +103,8 @@ def test_fallback_searches_are_bounded_and_duplicates_reuse_match():
 
     provider = PlaylistProvider(fetch, lambda row: None, match)
     snapshot = asyncio.run(provider.load("PL_test_playlist123"))
-    assert len(calls) == 50
-    assert (
-        snapshot.entries[50]["reason"] == "Fallback search limit reached (50)"
-    )
+    assert len(calls) == 51
+    assert snapshot.entries[50]["song_id"] == "50"
     assert snapshot.entries[51]["song_id"] == "0"
 
 
@@ -164,3 +162,56 @@ def test_malformed_rows_are_reported_and_duration_and_artwork_are_normalized():
     assert captured[0]["thumbnails"] == [
         {"url": "https://i.ytimg.com/vi/test/default.jpg"},
     ]
+
+
+def test_recent_negative_matches_expire_without_reprocessing_old_entries():
+    calls = []
+
+    async def fetch(payload):
+        return {"title": "Chart", "tracks": [SONG]}
+
+    async def match(artist, title):
+        calls.append(title)
+        if len(calls) == 1:
+            raise CatalogError(70, "No match")
+        return {"id": "found"}
+
+    async def scenario():
+        provider = PlaylistProvider(fetch, lambda row: None, match)
+        first = await provider.prepare("PL_test_playlist123")
+        first = await provider.batch(first)
+        assert first["entries"][0]["song_id"] is None
+        cached = await provider.prepare("PL_test_playlist123", first)
+        cached = await provider.batch(cached)
+        assert cached["entries"][0]["song_id"] is None
+        assert len(calls) == 1
+        for value in cached["matches"].values():
+            value["time"] = 0
+        refreshed = await provider.prepare("PL_test_playlist123", cached)
+        refreshed = await provider.batch(refreshed)
+        assert refreshed["entries"][0]["song_id"] == "found"
+        assert len(calls) == 2
+
+    asyncio.run(scenario())
+
+
+def test_persisted_source_rows_only_include_public_metadata():
+    async def fetch(payload):
+        return {
+            "title": "Chart",
+            "tracks": [
+                SONG
+                | {
+                    "feedbackTokens": "private-state",
+                    "artists": [
+                        SONG["artists"][0] | {"token": "private-state"}
+                    ],
+                    "album": SONG["album"] | {"token": "private-state"},
+                }
+            ],
+        }
+
+    provider = PlaylistProvider(fetch, lambda row: None, None)
+    progress = asyncio.run(provider.prepare("PL_test_playlist123"))
+    assert "private-state" not in str(progress)
+    assert progress["tracks"][0]["title"] == SONG["title"]

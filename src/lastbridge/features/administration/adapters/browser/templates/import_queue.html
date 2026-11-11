@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% from 'components/import_jobs.html' import listing %}
+{% block head %}<meta http-equiv="refresh" content="5">{% endblock %}
+{% block content %}
+<div class="dashboard">
+  <section class="panel">
+    <p>Previews and refreshes run in the background. Progress is saved after each batch and resumes after a restart. This page updates every five seconds.</p>
+    <p>Pause or cancel stops the current job; completed batches are kept. Resume or retry continues from the saved progress. A published chart stays available until a complete refresh succeeds.</p>
+    <div class="actions"><a href="/playlists">Add a playlist or shared chart</a><a href="/admin">Back to administration</a></div>
+  </section>
+  {{ listing(jobs, user, '/admin/import-queue') }}
+  <nav class="actions" aria-label="Import queue pages">
+    {% if offset %}<a href="?offset={{ [0, offset - 50]|max }}">Previous</a>{% endif %}
+    {% if more %}<a href="?offset={{ offset + 50 }}">Next</a>{% endif %}
+  </nav>
+</div>
+{% endblock %}

@@ -10,6 +10,7 @@
     <title>{{ page.title }} · Lastbridge</title>
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
     <link rel="stylesheet" href="/assets/style.css">
+    {% block head %}{% endblock %}
   </head>
   <body class="{{ 'app-shell' if user is not none else 'guest-shell' }}">
     <a class="skip-link" href="#main">

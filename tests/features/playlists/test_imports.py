@@ -39,6 +39,7 @@ def test_import_preview_order_duplicates_report_and_metadata_only(
     service, imports, _, calls = imported_service
     owner = user(service)
     item_id = run(service, imports.preview, owner, URL)
+    assert run(service, imports.refresh_one)
     preview = imports.get(owner, item_id)
     assert len(preview["entries"]) == 4
     assert [e["position"] for e in preview["entries"]] == [1, 2, 3, 4]
@@ -137,11 +138,12 @@ def test_failure_preserves_snapshot_manual_resets_clock_and_restart_recovers(
     failed = imports.get(owner, item_id)
     assert failed["entries"] == before["entries"]
     assert failed["updated"] == before["updated"]
-    assert failed["error"] and failed["next_attempt"] > time.time() + 295
+    assert failed["error"] and failed["next_attempt"] > time.time() + 55
     assert not run(service, imports.refresh_one)
     state["fail"] = False
     due(service, item_id)
     run(service, imports.refresh, owner, item_id)
+    assert run(service, imports.refresh_one)
     refreshed = imports.get(owner, item_id)
     assert refreshed["error"] is None
     assert refreshed["next_attempt"] > time.time() + DAY - 5
@@ -150,7 +152,7 @@ def test_failure_preserves_snapshot_manual_resets_clock_and_restart_recovers(
     imports.repository.recover()
     recovered = imports.get(owner, item_id)
     assert recovered["token"] is None
-    assert recovered["next_attempt"] > time.time() + 55
+    assert recovered["state"] == "queued"
     imports.remove(owner, item_id)
     assert not imports.rows(owner)
 
@@ -173,8 +175,8 @@ def test_partial_or_oversized_payload_cannot_replace_snapshot(
     owner = user(service)
     before = imports.get(owner, item_id)
     state.update(change)
-    with pytest.raises(CatalogError):
-        run(service, imports.refresh, owner, item_id)
+    run(service, imports.refresh, owner, item_id)
+    assert run(service, imports.refresh_one)
     assert imports.get(owner, item_id)["entries"] == before["entries"]
 
 
@@ -201,13 +203,15 @@ def test_cancelled_refresh_keeps_snapshot_and_cannot_resurrect_deleted_chart(
     async def scenario():
         entered = asyncio.Event()
         original = imports.provider.load
+        prepare = imports.provider.prepare
 
-        async def waiting(source):
+        async def waiting(source, previous):
             entered.set()
             await asyncio.Event().wait()
 
-        imports.provider.load = waiting
-        task = asyncio.create_task(imports.refresh(owner, item_id))
+        imports.provider.prepare = waiting
+        await imports.refresh(owner, item_id)
+        task = asyncio.create_task(imports.refresh_one())
         await entered.wait()
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -217,6 +221,7 @@ def test_cancelled_refresh_keeps_snapshot_and_cannot_resurrect_deleted_chart(
         due(service, item_id)
         job = imports.repository.claim(item_id)
         imports.remove(owner, item_id)
+        imports.provider.prepare = prepare
         snapshot = await original("PL_test_playlist123")
         imports.repository.publish(job, snapshot)
         assert not imports.rows(owner)
@@ -228,9 +233,10 @@ def test_previews_expire_and_private_removal_is_owner_only(imported_service):
     service, imports, _, _ = imported_service
     owner, alice = user(service), user(service, "alice")
     preview = run(service, imports.preview, owner, URL)
+    assert run(service, imports.refresh_one)
     with service[1].state.services.database.transaction() as connection:
         connection.execute(
-            "UPDATE playlist_imports SET created=0 WHERE id=?", (preview,)
+            "UPDATE playlist_imports SET updated=0 WHERE id=?", (preview,)
         )
     with pytest.raises(CatalogError):
         imports.confirm(owner, preview)
@@ -295,6 +301,7 @@ def test_chart_custom_name_survives_refresh_and_can_be_reset(imported_service):
     assert imports.get(owner, item_id)["custom_title"] is None
     state["title"] = "Later YouTube title"
     run(service, imports.refresh, owner, item_id)
+    assert run(service, imports.refresh_one)
     assert imports.get(owner, item_id)["title"] == "Later YouTube title"
 
 

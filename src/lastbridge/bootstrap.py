@@ -406,6 +406,7 @@ async def bootstrap(
                 charts=imports.retry_shared,
                 rename_chart=imports.rename_shared,
                 stations=stations,
+                import_queue=imports,
                 audio_settings=audio_settings_repository,
                 configure_audio=configure_audio,
                 audio_ceilings=(
