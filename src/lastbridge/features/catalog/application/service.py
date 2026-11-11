@@ -3,7 +3,9 @@ import time
 from collections import OrderedDict
 from weakref import WeakValueDictionary
 
+from lastbridge.features.catalog.application.artist_extras import ArtistExtras
 from lastbridge.features.catalog.application.ports import (
+    ArtistMetadataPort,
     CatalogStore,
     DocumentMapping,
     MetadataPort,
@@ -19,13 +21,14 @@ class Catalog:
         provider: MetadataPort,
         documents: DocumentMapping,
         artwork_lookup,
+        artist_metadata: ArtistMetadataPort | None = None,
     ):
         self.repository = repository
         self.provider = provider
         self.documents = documents
         self.artwork_lookup = artwork_lookup
         self.searches = OrderedDict()
-        self.artist_tops = OrderedDict()
+        self.extras = ArtistExtras(provider, documents, artist_metadata)
         self.artist_locks = WeakValueDictionary()
         self.artist_retries = OrderedDict()
 
@@ -50,14 +53,6 @@ class Catalog:
     def song(self, row, album=None, position=None):
         return self.documents.song(row, album, position)
 
-    def remember_tops(self, artist, row):
-        songs = self.documents.remember_tops(artist, row)
-        self.artist_tops[artist["source"]] = (time.monotonic() + 900, songs)
-        self.artist_tops.move_to_end(artist["source"])
-        while len(self.artist_tops) > 32:
-            self.artist_tops.popitem(last=False)
-        return songs
-
     async def top_songs(self, user_id, item_id=None, name=None, *, fetch=True):
         if item_id is not None:
             artist = self.read(item_id, "artist")
@@ -78,21 +73,33 @@ class Catalog:
             if not candidates:
                 return []
             artist = candidates[0]
-        cached = self.artist_tops.get(artist["source"])
-        if cached and cached[0] > time.monotonic():
-            self.artist_tops.move_to_end(artist["source"])
-            return cached[1]
-        if not fetch:
-            return []
-        try:
-            row = await self.provider.fetch(
-                {"operation": "artist", "source": artist["source"]}
-            )
-            return self.remember_tops(artist, row)
-        except CatalogError:
-            if cached and cached[0] > time.monotonic() - 86400:
-                return cached[1]
-            raise
+        # Name lookup returns the same normalized document contract as ID.
+        artist = self.read(artist["id"], "artist")
+        return await self.extras.top_songs(artist, fetch=fetch)
+
+    async def artist_info(self, item_id, *, fetch=True):
+        artist = self.read(item_id)
+        if artist["kind"] != "artist":
+            parent = artist["document"].get("artistId")
+            if not parent:
+                raise CatalogError(70, "Artist unavailable")
+            artist = self.read(parent, "artist")
+        return await self.extras.info(artist, fetch=fetch)
+
+    def similar_artists(self, names, count, include_not_present):
+        result, seen = [], set()
+        for name in names:
+            key = name.strip().casefold()
+            if key in seen or len(result) >= count:
+                continue
+            seen.add(key)
+            candidates = self.repository.artists_named(key)
+            if len(candidates) == 1:
+                doc = self.read(candidates[0]["id"], "artist")["document"]
+                result.append({k: v for k, v in doc.items() if k != "album"})
+            elif include_not_present:
+                result.append({"id": "-1", "name": name, "albumCount": 0})
+        return result
 
     async def search(self, user_id, query, kinds):
         key = (user_id, query, tuple(kinds))
@@ -231,10 +238,6 @@ class Catalog:
                 albums.extend(
                     a for a in document.get("album", []) if a["id"] not in seen
                 )
-            try:
-                self.remember_tops(stored, row)
-            except CatalogError:
-                pass
             document = document | {
                 "name": row["name"],
                 "album": [

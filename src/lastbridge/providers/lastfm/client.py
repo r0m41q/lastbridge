@@ -238,6 +238,22 @@ class Lastfm:
                 "pending", "Invalid Last.fm taste data; retry scheduled."
             ) from None
 
+    async def artist_info(self, client, name):
+        values = await self.request(
+            client,
+            {
+                "method": "artist.getInfo",
+                "artist": name,
+                "autocorrect": "0",
+                "api_key": self.api_key,
+                "format": "json",
+            },
+        )
+        artist = values.get("artist")
+        if not isinstance(artist, dict):
+            raise LastfmRequestError("pending", "Invalid Last.fm artist data.")
+        return artist
+
     async def exchange(
         self, client: httpx.AsyncClient, token: str
     ) -> tuple[str, str]:

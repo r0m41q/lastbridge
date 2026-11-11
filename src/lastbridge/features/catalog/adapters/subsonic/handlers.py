@@ -24,6 +24,25 @@ async def top_songs(request, method, values, user):
     return {"topSongs": {"song": library.decorate(user_id, songs[:count])}}
 
 
+async def artist_info(request, method, values, user):
+    catalog = services(request).catalog
+    count = min(integer(values, "count", 20), 50)
+    present = values.get("includeNotPresent", "false")
+    if present not in ("true", "false"):
+        raise CatalogError(10, "Invalid parameter: includeNotPresent")
+    info, names = await catalog.artist_info(
+        required(values, "id"), fetch=request.method != "HEAD"
+    )
+    info["similarArtist"] = catalog.similar_artists(
+        names, count, present == "true"
+    )
+    return {
+        "artistInfo2" if method.endswith("2") else "artistInfo": services(
+            request
+        ).library.decorate(user["id"], info)
+    }
+
+
 async def search(request, method, values, user):
     catalog = services(request).catalog
     library = services(request).library
@@ -93,6 +112,8 @@ async def cover(request, method, values, user):
 
 HANDLERS = {
     "getTopSongs": top_songs,
+    "getArtistInfo": artist_info,
+    "getArtistInfo2": artist_info,
     "search2": search,
     "search3": search,
     "getSong": detail,

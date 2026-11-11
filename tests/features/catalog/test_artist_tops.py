@@ -1,52 +1,8 @@
-import copy
 import time
 from xml.etree.ElementTree import fromstring
 
 import pytest
 from support.catalog import ARTIST, SONG, body, get, search
-
-from lastbridge.shared.errors import CatalogError
-
-
-@pytest.fixture
-def tops_service(catalog_service, monkeypatch):
-    service = catalog_service
-    original = service[1].state.services.catalog.provider.fetch
-    calls = []
-
-    async def fetch(payload):
-        if payload["operation"] != "artist":
-            return await original(payload)
-        calls.append(payload)
-        row = await original(payload)
-        row["songs"] = {
-            "results": [
-                SONG,
-                SONG,
-                SONG
-                | {
-                    "videoId": "othertrack1",
-                    "title": "Second",
-                    "duration_seconds": None,
-                    "duration": "3:04",
-                },
-                SONG | {"videoId": "othertrack2", "isAvailable": False},
-                SONG
-                | {
-                    "videoId": "othertrack3",
-                    "videoType": "MUSIC_VIDEO_TYPE_OMV",
-                },
-                SONG | {"artists": [{"id": "UC_other", "name": "Other"}]},
-                SONG | {"album": "broken"},
-                SONG | {"videoId": {}},
-            ]
-        }
-        return copy.deepcopy(row)
-
-    monkeypatch.setattr(
-        service[1].state.services.catalog.provider, "fetch", fetch
-    )
-    return service, calls
 
 
 def test_remote_artist_top_songs_id_name_xml_and_no_downloads(tops_service):
@@ -58,7 +14,7 @@ def test_remote_artist_top_songs_id_name_xml_and_no_downloads(tops_service):
     assert [s["title"] for s in result] == [SONG["title"], "Second"]
     assert result[1]["duration"] == 184
     assert all(s["contentType"] for s in result)
-    assert len(calls) == 1
+    assert len(calls) == 2
     assert (
         body(get(service, "getTopSongs", artist=artist["name"], count=1))[
             "topSongs"
@@ -76,14 +32,14 @@ def test_remote_artist_top_songs_id_name_xml_and_no_downloads(tops_service):
         ).content
     )
     assert len(root.findall("{*}topSongs/{*}song")) == 2
-    assert len(calls) == 1
+    assert len(calls) == 2
     store = service[1].state.services.accounts
     with store.repository.database.connection() as connection:
         assert not connection.execute("SELECT * FROM favorites").fetchall()
         assert not connection.execute("SELECT * FROM save_jobs").fetchall()
 
 
-def test_artist_detail_warms_tops_and_cached_user_stars_stay_private(
+def test_artist_detail_preserves_rankings_and_cached_stars_stay_private(
     tops_service,
 ):
     service, calls = tops_service
@@ -92,7 +48,7 @@ def test_artist_detail_warms_tops_and_cached_user_stars_stay_private(
     songs = body(get(service, "getTopSongs", id=artist["id"]))["topSongs"][
         "song"
     ]
-    assert len(calls) == 1
+    assert len(calls) == 2
     get(service, "star", id=songs[0]["id"])
     own = body(get(service, "getTopSongs", id=artist["id"]))["topSongs"][
         "song"
@@ -104,7 +60,7 @@ def test_artist_detail_warms_tops_and_cached_user_stars_stay_private(
     )["topSongs"]["song"]
     assert own[0]["starred"]
     assert "starred" not in other[0]
-    assert len(calls) == 1
+    assert len(calls) == 2
 
 
 def test_top_songs_name_can_resolve_an_unsaved_artist(tops_service):
@@ -112,7 +68,7 @@ def test_top_songs_name_can_resolve_an_unsaved_artist(tops_service):
     songs = body(get(service, "getTopSongs", artist="Daft Punk & friends"))[
         "topSongs"
     ]["song"]
-    assert len(songs) == 2 and len(calls) == 1
+    assert len(songs) == 2 and len(calls) == 2
 
 
 @pytest.mark.parametrize(
@@ -132,7 +88,7 @@ def test_top_songs_bad_parameters(tops_service, params, code):
     )
 
 
-def test_zero_count_head_and_outage_are_bounded(tops_service, monkeypatch):
+def test_zero_count_head_and_outage_are_bounded(tops_service):
     service, calls = tops_service
     client, app, _, keys = service
     artist = search(service)["artist"][0]
@@ -153,20 +109,18 @@ def test_zero_count_head_and_outage_are_bounded(tops_service, monkeypatch):
     )
     assert calls == []
     original = body(get(service, "getTopSongs", id=artist["id"]))["topSongs"]
-    cached = app.state.services.catalog.artist_tops[ARTIST]
-    app.state.services.catalog.artist_tops[ARTIST] = (
+    extras = app.state.services.catalog.extras
+    cached = extras.tops[ARTIST]
+    extras.tops[ARTIST] = (
         time.monotonic() - 1,
         cached[1],
     )
 
-    async def fail(payload):
-        raise CatalogError()
-
-    monkeypatch.setattr(app.state.services.catalog.provider, "fetch", fail)
+    extras.metadata.fail = True
     assert body(get(service, "getTopSongs", id=artist["id"]))["topSongs"] == (
         original
     )
-    app.state.services.catalog.artist_tops[ARTIST] = (
+    extras.tops[ARTIST] = (
         time.monotonic() - 90000,
         cached[1],
     )

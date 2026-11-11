@@ -18,7 +18,7 @@ from lastbridge.features.catalog.application.service import (
 )
 
 
-def make_catalog(accounts, provider=None):
+def make_catalog(accounts, provider=None, artist_metadata=None):
     repository = CatalogRepository(
         accounts.repository.database, client_document
     )
@@ -27,4 +27,5 @@ def make_catalog(accounts, provider=None):
         provider if provider is not None else MetadataProvider(),
         MetadataDocuments(repository),
         ArtworkLookup(repository),
+        artist_metadata,
     )

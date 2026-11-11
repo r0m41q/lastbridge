@@ -9,6 +9,7 @@ from lastbridge.features.catalog.domain.documents import (
 from lastbridge.features.catalog.domain.matching import match_recording
 from lastbridge.features.catalog.domain.models import Candidate, Recording
 from lastbridge.shared.errors import CatalogError
+from lastbridge.shared.recordings import normalize_title
 
 
 class MetadataDocuments(RadioDocuments):
@@ -131,7 +132,7 @@ class MetadataDocuments(RadioDocuments):
             complete=position is not None,
         )
 
-    def remember_tops(self, artist, row):
+    def artist_songs(self, artist, row):
         songs, seen = [], set()
         group = row.get("songs") or {}
         if not isinstance(group, dict):
@@ -194,6 +195,34 @@ class MetadataDocuments(RadioDocuments):
                 songs.append(song)
                 seen.add(song["id"])
         return songs
+
+    def ranked_song(self, artist, title, rows):
+        candidates = [
+            row
+            for row in rows.get("songs", [])[:100]
+            if isinstance(row, dict)
+            and isinstance(row.get("title"), str)
+            and normalize_title(row["title"]) == normalize_title(title)
+        ]
+        # Equivalent album editions are valid. With no explicitness preference
+        # from Last.fm, prefer explicit, unknown, then clean; provider order
+        # breaks ties without removing live/remix/version qualifiers.
+        candidates.sort(
+            key=lambda r: (
+                0
+                if r.get("isExplicit") is True
+                else 2
+                if r.get("isExplicit") is False
+                else 1
+            )
+        )
+        for candidate in candidates:
+            songs = self.artist_songs(
+                artist, {"songs": {"results": [candidate]}}
+            )
+            if songs:
+                return songs[0]
+        return None
 
     def match_loved(self, rows, artist, title):
         candidates, originals = [], {}

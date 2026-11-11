@@ -3,6 +3,7 @@
 pytest_plugins = (
     "support.accounts",
     "support.catalog",
+    "support.artists",
     "support.audio",
     "support.library",
     "support.sync",

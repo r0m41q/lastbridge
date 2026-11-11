@@ -23,6 +23,7 @@ from lastbridge.features.administration.application.service import (
     Administration,
 )
 from lastbridge.features.catalog.adapters.http.artwork import ArtworkLookup
+from lastbridge.features.catalog.adapters.lastfm import LastfmArtistMetadata
 from lastbridge.features.catalog.adapters.sqlite.repository import (
     CatalogRepository,
 )
@@ -207,22 +208,6 @@ async def bootstrap(
                     )
                 )
             )
-            repository = CatalogRepository(database, client_document)
-            catalog = Catalog(
-                repository,
-                selected.metadata
-                if selected.metadata is not None
-                else MetadataProvider(),
-                MetadataDocuments(repository),
-                ArtworkLookup(repository),
-            )
-            library = Library(
-                LibraryRepository(
-                    database, audio_settings.policy, LoveIntentWriter()
-                ),
-                catalog,
-                audio_settings.policy,
-            )
             lastfm = Lastfm(
                 config.lastfm_api_key.get_secret_value(),
                 config.lastfm_api_secret.get_secret_value(),
@@ -242,6 +227,23 @@ async def bootstrap(
             )
         )
         try:
+            repository = CatalogRepository(database, client_document)
+            catalog = Catalog(
+                repository,
+                selected.metadata
+                if selected.metadata is not None
+                else MetadataProvider(),
+                MetadataDocuments(repository),
+                ArtworkLookup(repository),
+                LastfmArtistMetadata(lastfm, client),
+            )
+            library = Library(
+                LibraryRepository(
+                    database, audio_settings.policy, LoveIntentWriter()
+                ),
+                catalog,
+                audio_settings.policy,
+            )
             media_files = None
             media_placement = None
             metadata_writer = None

@@ -11,6 +11,20 @@ def xml_values(parent, values):
     for key, value in values.items():
         if parent.tag in ("line", "lyrics") and key == "value":
             parent.text = value
+        elif (
+            parent.tag in ("artistInfo", "artistInfo2")
+            and key
+            in (
+                "biography",
+                "musicBrainzId",
+                "lastFmUrl",
+                "smallImageUrl",
+                "mediumImageUrl",
+                "largeImageUrl",
+            )
+            and value is not None
+        ):
+            SubElement(parent, key).text = scalar(value)
         elif isinstance(value, dict):
             xml_values(SubElement(parent, key), value)
         elif isinstance(value, list):
