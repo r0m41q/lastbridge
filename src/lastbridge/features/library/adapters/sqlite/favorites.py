@@ -16,8 +16,8 @@ class FavoriteRepository:
             return {
                 row[0]
                 for row in connection.execute(
-                    "SELECT DISTINCT c.source FROM retained_tracks t "
-                    "JOIN catalog c ON c.id=t.song_id"
+                    "SELECT DISTINCT c.source FROM retained_audio t "
+                    "JOIN catalog c ON c.id=t.recording_id"
                 )
             }
 
@@ -33,14 +33,14 @@ class FavoriteRepository:
     def schedule(self, connection):
         connection.execute(
             "INSERT OR IGNORE INTO save_jobs(source,policy,state) "
-            "SELECT DISTINCT c.source,?,'pending' FROM retained_tracks t "
-            "JOIN catalog c ON c.id=t.song_id",
+            "SELECT DISTINCT c.source,?,'pending' FROM retained_audio t "
+            "JOIN catalog c ON c.id=t.recording_id",
             (self.policy,),
         )
         connection.execute(
             "DELETE FROM save_jobs WHERE policy!=? OR source NOT IN "
-            "(SELECT c.source FROM retained_tracks t "
-            "JOIN catalog c ON c.id=t.song_id)",
+            "(SELECT c.source FROM retained_audio t "
+            "JOIN catalog c ON c.id=t.recording_id)",
             (self.policy,),
         )
 
@@ -59,6 +59,15 @@ class FavoriteRepository:
                     (user_id, key),
                 ).fetchone()
                 if not active or removed:
+                    return False
+                manual = connection.execute(
+                    "SELECT c.source FROM loved_items l JOIN catalog c "
+                    "ON c.id=l.manual_song_id WHERE l.user_id=? "
+                    "AND l.target=? "
+                    "AND l.recording_key=?",
+                    (user_id, target, key),
+                ).fetchone()
+                if manual:
                     return False
             changed = False
             for item_id, data in prepared.items():

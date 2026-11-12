@@ -9,6 +9,7 @@ from lastbridge.features.library.application.ports import (
 )
 from lastbridge.features.library.application.worker import DownloadWorker
 from lastbridge.features.library.domain.documents import decorate
+from lastbridge.features.library.domain.recordings import document_ids
 from lastbridge.shared.errors import CatalogError
 
 
@@ -25,6 +26,24 @@ class Library:
         self.wake = asyncio.Event()
         self.worker = None
 
+    def recording(self, user_id, item_id, kind=None):
+        stored = self.catalog.read(item_id, kind)
+        recording_id = (
+            self.repository.recording_id(user_id, item_id)
+            if stored["kind"] == "song"
+            else item_id
+        )
+        actual = (
+            self.catalog.read(recording_id, "song")
+            if recording_id != item_id
+            else stored
+        )
+        return actual | {
+            "id": item_id,
+            "recording_id": recording_id,
+            "document": actual["document"] | {"id": item_id},
+        }
+
     def sources(self):
         return self.repository.sources()
 
@@ -35,8 +54,19 @@ class Library:
         return self.repository.stars(user_id)
 
     def decorate(self, user_id, document):
+        ids = document_ids(document)
+        recordings = {
+            song_id: self.catalog.read(recording_id, "song")["document"]
+            for song_id, recording_id in self.repository.recording_ids(
+                user_id
+            ).items()
+            if song_id in ids
+        }
         return decorate(
-            document, self.stars(user_id), self.repository.plays(user_id)
+            document,
+            self.stars(user_id),
+            self.repository.plays(user_id),
+            recordings,
         )
 
     def played_albums(self, user_id, kind, size, offset):
@@ -148,14 +178,19 @@ class Library:
 
     def downloads(self, user_id):
         return [
-            row | {"title": self.catalog.read(row["id"])["document"]["title"]}
+            row
+            | {
+                "title": self.recording(user_id, row["id"])["document"][
+                    "title"
+                ]
+            }
             for row in self.repository.downloads(user_id)
         ]
 
     def collection(self, user_id, starred_only=False):
         stars = self.stars(user_id)
         ids = self.repository.collection_ids(user_id, starred_only)
-        items = {item_id: self.catalog.read(item_id) for item_id in ids}
+        items = {item_id: self.recording(user_id, item_id) for item_id in ids}
         if not starred_only:
             # Only include album/artist parents of this user's saved songs.
             # Public catalog searches never constitute library membership.
@@ -200,4 +235,4 @@ class Library:
                     d["id"],
                 )
             )
-        return decorate(result, stars, self.repository.plays(user_id))
+        return self.decorate(user_id, result)

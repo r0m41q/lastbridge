@@ -8,6 +8,8 @@ class CatalogAccess(Protocol):
 
 
 class LibraryAccess(Protocol):
+    def decorate(self, user_id: int, document): ...
+
     async def change(
         self, user_id: int, targets, enabled: bool, *, imported=None
     ) -> bool: ...

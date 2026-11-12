@@ -117,9 +117,12 @@ class Lyrics:
             song_id = self.catalog.song_named(artist, title)
             if song_id is None:
                 return {}
-            documents = await self.get(song_id)
+            return await self.plain(song_id)
         except StorageError:
             return {}
+
+    async def plain(self, song_id, *, fetch=True):
+        documents = await self.get(song_id, fetch=fetch)
         if not documents:
             return {}
         document = documents[0]

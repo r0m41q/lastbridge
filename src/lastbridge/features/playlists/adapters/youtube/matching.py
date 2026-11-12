@@ -14,7 +14,7 @@ class PlaylistResolver:
     def __init__(self, fetch, song):
         self.fetch, self.song = fetch, song
 
-    async def resolve(self, source):
+    async def resolve(self, source, *, query=None, review=False):
         source = source | {
             "artists": [
                 a
@@ -34,6 +34,8 @@ class PlaylistResolver:
                 ]
             )
         )
+        if query:
+            queries = [query]
         rows = {}
         for query in queries:
             result = await self.fetch(
@@ -80,15 +82,46 @@ class PlaylistResolver:
         )
         for row in ordered:
             flags = compare(source, row)
-            if not flags["exact"] and not (
-                flags["artist_ok"]
-                and flags["version_ok"]
-                and flags["score"] >= 0.88
+            if (
+                not review
+                and not flags["exact"]
+                and not (
+                    flags["artist_ok"]
+                    and flags["version_ok"]
+                    and flags["score"] >= 0.88
+                )
             ):
                 continue
             song = self.song(row)
             if song is None:
                 continue
+            if review:
+                row = row | {
+                    "title": song["title"],
+                    "artists": song.get("artists")
+                    or [{"name": song.get("artist", "")}],
+                    "album": row["album"] | {"name": song.get("album")},
+                    "duration_seconds": song.get("duration"),
+                    "isExplicit": song.get("isExplicit"),
+                }
+                flags = compare(source, row)
+            warnings = [
+                label
+                for flag, label in (
+                    ("artist_ok", "Different artist"),
+                    ("version_ok", "Different version"),
+                    ("explicit_ok", "Different explicit/clean status"),
+                    ("exact", "Different title"),
+                )
+                if not flags[flag]
+            ]
+            duration = source.get("duration_seconds")
+            other = row.get("duration_seconds")
+            if isinstance(duration, (int, float)) and isinstance(
+                other, (int, float)
+            ):
+                if abs(duration - other) > 5:
+                    warnings.append("Different duration")
             candidates.append(
                 {
                     "song_id": song["id"],
@@ -107,6 +140,11 @@ class PlaylistResolver:
                         )
                     ),
                     "score": round(flags["score"], 3),
+                    **(
+                        {"warnings": warnings, "mismatch": bool(warnings)}
+                        if review
+                        else {}
+                    ),
                 }
             )
             if len(candidates) == 5:

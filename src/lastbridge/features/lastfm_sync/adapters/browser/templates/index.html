@@ -54,6 +54,7 @@
           {% for item in items %}
             <li>
               {{ item.artist }} — {{ item.title }}: {{ item.state }}; {{ item.error or '' }}
+              {% if item.state == 'unmatched' %}<a href="/library/recordings/love/{{ item.recording_key }}">Choose recording</a>{% endif %}
             </li>
           {% endfor %}
         </ul>

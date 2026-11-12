@@ -11,4 +11,5 @@ pytest_plugins = (
     "support.radio",
     "support.mixes",
     "support.imports",
+    "support.corrections",
 )

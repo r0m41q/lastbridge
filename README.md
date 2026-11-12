@@ -41,7 +41,7 @@ Administrators can add other users from **Administration**.
 
 ## Using Lastbridge
 
-Like a song to save it and sync the like to Last.fm. Choose **Keep downloaded** on a playlist to save its audio on the server too. Normal playlists don't retain audio.
+Like a song to save it and sync the like to Last.fm. Choose **Keep downloaded** on a playlist to save its audio on the server too. Normal playlists don't retain audio. Use **Choose recording** in Saved library to replace a wrong or unavailable track.
 
 Use **Playlists** in the web UI to import a public YouTube playlist. Review unmatched tracks before adding it. Administrators can share charts with everyone and manage import jobs and internet radio stations from **Administration**.
 

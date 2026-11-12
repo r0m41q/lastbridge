@@ -94,16 +94,17 @@ class JobRepository:
                 "UPDATE save_jobs SET state='pending',attempts=0,error=NULL,"
                 "next_attempt=0 WHERE state IN ('pending','failed') "
                 "AND policy=? "
-                "AND source IN (SELECT c.source FROM retained_tracks t "
-                "JOIN catalog c ON c.id=t.song_id WHERE t.user_id=?)",
+                "AND source IN (SELECT c.source FROM retained_audio t "
+                "JOIN catalog c ON c.id=t.recording_id WHERE t.user_id=?)",
                 (self.policy, user_id),
             )
 
     def downloads(self, user_id):
         with self.database.connection() as connection:
             rows = connection.execute(
-                "SELECT DISTINCT c.id,j.state,j.attempts,j.error FROM "
-                "retained_tracks t JOIN catalog c ON c.id=t.song_id "
+                "SELECT DISTINCT t.song_id AS id,j.state,j.attempts,j.error "
+                "FROM "
+                "retained_audio t JOIN catalog c ON c.id=t.recording_id "
                 "JOIN save_jobs j ON j.source=c.source AND j.policy=? "
                 "WHERE t.user_id=? ORDER BY c.id",
                 (self.policy, user_id),

@@ -25,6 +25,7 @@
               <tr>
                 <td>
                   {{ item.title }}
+                  <a href="/library/recordings/song/{{ item.id }}">Choose recording</a>
                 </td>
                 <td>
                   {{ badge(state, 'good' if state == 'saved' else 'warm') }}

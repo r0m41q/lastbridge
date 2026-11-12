@@ -8,10 +8,10 @@ logger = logging.getLogger(__name__)
 
 
 async def audio(request, method, values, user):
-    catalog = services(request).catalog
+    library = services(request).library
     user_id = user["id"]
     try:
-        song = catalog.read(required(values, "id"), "song")
+        song = library.recording(user_id, required(values, "id"), "song")
         # Preserve the configured source audio. Clients seek with HTTP Range;
         # no transcoding or transcode-offset extension is advertised.
         if method == "stream":

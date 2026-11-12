@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% from 'components/forms.html' import action %}
+{% block content %}
+  <div class="dashboard">
+    <section class="panel">
+      <h2>{{ item.source.artists | map(attribute='name') | join(', ') }} — {{ item.source.title }}</h2>
+      {% if item.current %}
+        <p>Current recording: {{ item.current.document.artist }} — {{ item.current.document.title }} · {{ item.current.document.album }}</p>
+        <p><a href="https://music.youtube.com/watch?v={{ item.current.source | urlencode }}" rel="noreferrer" target="_blank">Listen on YouTube Music</a></p>
+        {% if item.kind == 'song' and item.current.recording_id != item.original.id %}
+          {{ action(path ~ '/clear', user.csrf, 'Use original recording') }}
+        {% endif %}
+      {% endif %}
+      <p>Your choice applies to your library, playlists and downloads. Other users keep their recordings.</p>
+      <form method="post" action="{{ path }}/search">
+        <input type="hidden" name="csrf" value="{{ user.csrf }}">
+        <label>Search for a recording
+          <input name="query" maxlength="256" value="{{ item.source.artists | map(attribute='name') | join(' ') }} {{ item.source.title }}">
+        </label>
+        <button type="submit">Search</button>
+      </form>
+    </section>
+    {% if item.review %}
+      <section class="panel">
+        <h2>Choose a recording</h2>
+        {% for candidate in item.review.candidates %}
+          <article>
+            <h3>{{ candidate.artist }} — {{ candidate.title }}</h3>
+            <p>{{ candidate.album }} · {{ candidate.duration or 'Unknown duration' }} seconds · {{ 'Explicit' if candidate.explicit == true else 'Clean' if candidate.explicit == false else 'Unknown explicitness' }}</p>
+            <p><a href="https://music.youtube.com/watch?v={{ candidate.source | urlencode }}" rel="noreferrer" target="_blank">Listen on YouTube Music</a></p>
+            {% if candidate.warnings %}<p>{{ candidate.warnings | join(' · ') }}</p>{% endif %}
+            <form method="post" action="{{ path }}/choose">
+              <input type="hidden" name="csrf" value="{{ user.csrf }}">
+              <input type="hidden" name="token" value="{{ item.review.token }}">
+              <input type="hidden" name="song_id" value="{{ candidate.song_id }}">
+              {% if candidate.mismatch %}<label><input type="checkbox" name="acknowledge" value="yes" required> I accept these differences</label>{% endif %}
+              <button type="submit">Use this recording</button>
+            </form>
+          </article>
+        {% else %}
+          <p>No other recordings found. Try changing the artist or title in your search.</p>
+        {% endfor %}
+      </section>
+    {% endif %}
+    <a href="{{ '/lastfm/sync' if item.kind == 'love' else '/library' }}">Back</a>
+  </div>
+{% endblock %}

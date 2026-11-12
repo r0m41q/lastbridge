@@ -52,6 +52,9 @@ from lastbridge.features.lastfm_sync.application.service import LastfmSync
 from lastbridge.features.library.adapters.sqlite.repository import (
     LibraryRepository,
 )
+from lastbridge.features.library.application.corrections import (
+    RecordingCorrections,
+)
 from lastbridge.features.library.application.service import Library
 from lastbridge.features.lyrics.adapters.lrclib.provider import Lrclib
 from lastbridge.features.lyrics.adapters.sqlite.repository import (
@@ -103,6 +106,9 @@ from lastbridge.features.playlists.adapters.sqlite.repository import (
 from lastbridge.features.playlists.adapters.youtube.imports import (
     PlaylistProvider,
 )
+from lastbridge.features.playlists.adapters.youtube.matching import (
+    PlaylistResolver,
+)
 from lastbridge.features.playlists.application.imports import Imports
 from lastbridge.features.playlists.application.service import Playlists
 from lastbridge.features.radio.adapters.catalog import RadioCatalog
@@ -134,6 +140,7 @@ class Services:
     accounts: Accounts
     catalog: Catalog
     library: Library
+    corrections: RecordingCorrections
     audio: AudioCache
     play_queue: PlayQueue
     http_client: httpx.AsyncClient
@@ -322,7 +329,15 @@ async def bootstrap(
         except Exception:
             raise RuntimeError("Cannot initialize audio cache") from None
         resources.push_async_callback(audio.close)
-        play_queue = PlayQueue(QueueRepository(database), catalog, audio)
+        corrections = RecordingCorrections(
+            library.repository,
+            catalog,
+            library,
+            PlaylistResolver(catalog.provider.fetch, catalog.song),
+        )
+        play_queue = PlayQueue(
+            QueueRepository(database), catalog, audio, library
+        )
         resources.push_async_callback(play_queue.close)
         resources.push_async_callback(library.close)
         if saved_artwork is not None and start_workers:
@@ -390,6 +405,7 @@ async def bootstrap(
             accounts=accounts,
             catalog=catalog,
             library=library,
+            corrections=corrections,
             audio=audio,
             play_queue=play_queue,
             http_client=client,

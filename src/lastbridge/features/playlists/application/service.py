@@ -63,7 +63,7 @@ class Playlists:
         documents = {
             s: self.catalog.read(s, "song")["document"] for s in set(ids)
         }
-        songs = [documents[s] for s in ids]
+        songs = self.library.decorate(user["id"], [documents[s] for s in ids])
         result = {
             "id": row["id"],
             "name": row["name"],
@@ -79,7 +79,7 @@ class Playlists:
         if songs and songs[0].get("coverArt"):
             result["coverArt"] = songs[0]["coverArt"]
         if detail:
-            result["entry"] = self.library.decorate(user["id"], songs)
+            result["entry"] = songs
         return result
 
     def get(self, user, item_id):

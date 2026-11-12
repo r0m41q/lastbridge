@@ -128,7 +128,8 @@ class ImportRepository:
                 connection.execute(
                     "UPDATE loved_items SET state=?,song_id=?,error=?,"
                     "attempts=attempts+1,next_attempt=? WHERE user_id=? "
-                    "AND target=? AND recording_key=? AND state='pending'",
+                    "AND target=? AND recording_key=? AND state='pending' "
+                    "AND manual_song_id IS NULL",
                     (
                         state,
                         song_id,

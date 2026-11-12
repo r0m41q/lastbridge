@@ -103,7 +103,7 @@ class Radio:
         if self.closed or self.warmed.get(user_id, 0) > now - 60:
             return
         try:
-            source = self.catalog.read(song_id, "song")["source"]
+            source = self.library.recording(user_id, song_id, "song")["source"]
             if source in self.cache and self.cache[source][0] > now - TTL:
                 return
             self.warmed[user_id] = now
@@ -182,7 +182,11 @@ class Radio:
         try:
             async with asyncio.timeout(DEADLINE):
                 seed = await self.seed(item_id)
-                source = self.catalog.read(seed["id"], "song")["source"]
+                recording = self.library.recording(
+                    user["id"], seed["id"], "song"
+                )
+                source = recording["source"]
+                seed = recording["document"]
                 cached = self.cache.get(source)
                 if cached and cached[0] > time.monotonic() - TTL:
                     self.cache.move_to_end(source)

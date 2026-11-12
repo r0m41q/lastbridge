@@ -2,12 +2,14 @@
 
 SONG_PLAYS = (
     "WITH song_plays AS ("
-    "SELECT song_id,COUNT(DISTINCT timestamp) AS count,"
+    "SELECT user_id,song_id,COUNT(DISTINCT timestamp) AS count,"
     "MAX(timestamp) AS last FROM scrobbles WHERE user_id=? GROUP BY song_id) "
 )
 ALBUM_PLAYS = (
     "SELECT album.id,SUM(p.count) AS count,MAX(p.last) AS last "
-    "FROM song_plays p JOIN catalog song ON song.id=p.song_id "
+    "FROM song_plays p LEFT JOIN recording_corrections r "
+    "ON r.user_id=p.user_id AND r.song_id=p.song_id "
+    "JOIN catalog song ON song.id=COALESCE(r.recording_id,p.song_id) "
     "AND song.kind='song' JOIN catalog album "
     "ON album.id=json_extract(song.document,'$.albumId') "
     "AND album.kind='album' GROUP BY album.id "

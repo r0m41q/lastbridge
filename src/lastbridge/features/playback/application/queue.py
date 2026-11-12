@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from lastbridge.features.playback.application.ports import (
     QueueAudio,
     QueueCatalog,
+    QueueRecordings,
     QueueStore,
 )
 from lastbridge.shared.errors import CatalogError, StorageError
@@ -14,11 +15,23 @@ logger = logging.getLogger(__name__)
 
 class PlayQueue:
     def __init__(
-        self, repository: QueueStore, catalog: QueueCatalog, audio: QueueAudio
+        self,
+        repository: QueueStore,
+        catalog: QueueCatalog,
+        audio: QueueAudio,
+        recordings: QueueRecordings | None = None,
     ):
         self.repository, self.catalog, self.audio = repository, catalog, audio
         self.tasks = {}
         self.closed = False
+        self.recordings = recordings
+
+    def recording(self, user_id, item_id):
+        return (
+            self.recordings.recording(user_id, item_id, "song")
+            if self.recordings is not None
+            else self.catalog.read(item_id, "song")
+        )
 
     def get(self, user_id):
         document = self.repository.get(user_id)
@@ -26,7 +39,7 @@ class PlayQueue:
             return {"entry": []}
         return {k: v for k, v in document.items() if k != "ids"} | {
             "entry": [
-                self.catalog.read(song_id, "song")["document"]
+                self.recording(user_id, song_id)["document"]
                 for song_id in document["ids"]
             ]
         }
@@ -76,7 +89,7 @@ class PlayQueue:
             self.cancel(user_id)
             if index >= len(ids) or len(self.tasks) >= 32:
                 return
-            source = self.catalog.read(ids[index], "song")["source"]
+            source = self.recording(user_id, ids[index])["source"]
             task = asyncio.create_task(self.warm(source))
             self.tasks[user_id] = task
 

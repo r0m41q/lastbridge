@@ -29,8 +29,8 @@ class DashboardRepository:
             ]
             retained = {}
             for row in connection.execute(
-                "SELECT DISTINCT t.user_id,c.source FROM retained_tracks t "
-                "JOIN catalog c ON c.id=t.song_id"
+                "SELECT DISTINCT t.user_id,c.source FROM retained_audio t "
+                "JOIN catalog c ON c.id=t.recording_id"
             ):
                 retained.setdefault(row["user_id"], set()).add(row["source"])
             job_counts = dict(
@@ -48,7 +48,7 @@ class DashboardRepository:
                     "count(DISTINCT t.user_id) "
                     "AS owners FROM save_jobs j LEFT JOIN catalog c ON "
                     "c.source=j.source AND c.kind='song' LEFT JOIN "
-                    "retained_tracks t ON t.song_id=c.id WHERE j.policy=? "
+                    "retained_audio t ON t.recording_id=c.id WHERE j.policy=? "
                     "AND j.state='failed' "
                     "GROUP BY j.source,j.state,j.attempts "
                     "ORDER BY j.source LIMIT 100",
@@ -62,8 +62,9 @@ class DashboardRepository:
                         "SELECT j.state,count(DISTINCT j.source) "
                         "FROM save_jobs j "
                         "JOIN catalog c ON c.source=j.source "
-                        "JOIN retained_tracks "
-                        "t ON t.song_id=c.id WHERE t.user_id=? AND j.policy=? "
+                        "JOIN retained_audio "
+                        "t ON t.recording_id=c.id WHERE t.user_id=? "
+                        "AND j.policy=? "
                         "GROUP BY j.state",
                         (user_id, self.policy),
                     )

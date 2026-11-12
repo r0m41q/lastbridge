@@ -51,7 +51,7 @@ class Imports:
         documents = {
             s: self.catalog.read(s, "song")["document"] for s in set(ids)
         }
-        songs = [documents[s] for s in ids]
+        songs = self.library.decorate(user["id"], [documents[s] for s in ids])
         result = {
             "id": row["id"],
             "name": row["title"],
@@ -67,7 +67,7 @@ class Imports:
         if songs and songs[0].get("coverArt"):
             result["coverArt"] = songs[0]["coverArt"]
         if detail:
-            result["entry"] = self.library.decorate(user["id"], songs)
+            result["entry"] = songs
         return result
 
     async def preview(self, user, url, shared=False):

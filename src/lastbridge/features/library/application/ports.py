@@ -19,6 +19,8 @@ class AudioStorage(Protocol):
 
 
 class LibraryStore(Protocol):
+    def recording_id(self, user_id: int, song_id: str) -> str: ...
+    def recording_ids(self, user_id: int) -> dict[str, str]: ...
     def sources(self) -> set[str]: ...
     def stars(self, user_id: int) -> dict: ...
     def plays(self, user_id: int) -> dict: ...
@@ -35,3 +37,47 @@ class LibraryStore(Protocol):
     def retry(self, user_id: int): ...
     def downloads(self, user_id: int) -> list[dict]: ...
     def collection_ids(self, user_id: int, starred_only: bool) -> set[str]: ...
+
+
+class RecordingSearch(Protocol):
+    async def resolve(
+        self, source: dict, *, query: str | None = None, review: bool = False
+    ) -> dict: ...
+
+
+class CorrectionStore(Protocol):
+    def correction_context(
+        self, user_id: int, kind: str, key: str
+    ) -> dict: ...
+
+    def recording_review(
+        self, user_id: int, kind: str, key: str
+    ) -> dict | None: ...
+
+    def save_review(
+        self,
+        user_id: int,
+        kind: str,
+        key: str,
+        fingerprint: str,
+        candidates: list[dict],
+    ): ...
+
+    def choose_recording(
+        self,
+        user_id: int,
+        kind: str,
+        key: str,
+        token: str,
+        fingerprint: str,
+        recording_id: str,
+        acknowledge: bool = False,
+    ) -> str: ...
+
+
+class CorrectionLibrary(Protocol):
+    def recording(
+        self, user_id: int, item_id: str, kind: str = "song"
+    ) -> dict: ...
+    async def reconcile(self): ...
+    def notify(self): ...

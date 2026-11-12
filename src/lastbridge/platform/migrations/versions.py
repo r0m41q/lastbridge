@@ -16,6 +16,9 @@ from lastbridge.platform.migrations.lyrics import SCHEMA as LYRICS_SCHEMA
 from lastbridge.platform.migrations.media import SCHEMA as MEDIA_SCHEMA
 from lastbridge.platform.migrations.playlists import SCHEMA as PLAYLIST_SCHEMA
 from lastbridge.platform.migrations.radio import SCHEMA as RADIO_SCHEMA
+from lastbridge.platform.migrations.recordings import (
+    SCHEMA as RECORDING_SCHEMA,
+)
 from lastbridge.platform.migrations.stations import SCHEMA as STATION_SCHEMA
 from lastbridge.platform.migrations.synchronization import (
     SCHEMA as SYNC_SCHEMA,
@@ -52,7 +55,7 @@ SCHEMA = (
 def migrate(database, credentials):
     with database.transaction() as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 19:
+        if version > 20:
             raise RuntimeError("Database is newer than this application")
         if version == 0:
             for statement in SCHEMA:
@@ -268,6 +271,19 @@ def migrate(database, credentials):
                 "document TEXT NOT NULL)"
             )
             connection.execute("PRAGMA user_version=19")
+        if version < 20:
+            for statement in RECORDING_SCHEMA:
+                connection.execute(statement)
+            columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(loved_items)")
+            }
+            if "manual_song_id" not in columns:
+                connection.execute(
+                    "ALTER TABLE loved_items ADD COLUMN manual_song_id "
+                    "TEXT REFERENCES catalog(id)"
+                )
+            connection.execute("PRAGMA user_version=20")
         check = connection.execute(
             "SELECT value FROM credential_check"
         ).fetchone()[0]

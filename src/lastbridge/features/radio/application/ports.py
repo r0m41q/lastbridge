@@ -13,6 +13,7 @@ class CatalogAccess(Protocol):
 
 class LibraryAccess(Protocol):
     def decorate(self, user_id: int, document): ...
+    def recording(self, user_id: int, item_id: str, kind: str) -> dict: ...
 
 
 class TasteProvider(Protocol):

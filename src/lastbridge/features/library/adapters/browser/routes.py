@@ -1,6 +1,9 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
+from lastbridge.features.library.adapters.browser.corrections import (
+    router as corrections_router,
+)
 from lastbridge.transport.browser.dependencies import (
     current_user,
     protected_form,
@@ -9,6 +12,7 @@ from lastbridge.transport.browser.rendering import Page, render
 from lastbridge.transport.http.context import services
 
 router = APIRouter()
+router.include_router(corrections_router)
 
 
 @router.get("/library")

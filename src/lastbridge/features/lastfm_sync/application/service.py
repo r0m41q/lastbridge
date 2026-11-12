@@ -46,6 +46,11 @@ class LastfmSync:
 
     def report(self, user, values):
         prepared, now = prepare_report(self.catalog, values)
+        documents = self.library.decorate(user["id"], [s for s, _ in prepared])
+        prepared = [
+            (song, stamp)
+            for song, (_, stamp) in zip(documents, prepared, strict=True)
+        ]
         self.repository.record(user, values, prepared, now)
         if values.get("submission", "true") != "false":
             self.wake.set()
