@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% from 'components/display.html' import heading, badge %}
+{% block content %}
+  <section class="panel">
+    {{ heading(item.document.title) }}
+    <p>{{ item.document.artist }} · {{ item.document.album }}</p>
+    {% if status %}
+      <dl>
+        <dt>Audio</dt><dd>{{ status.audio }}</dd>
+        <dt>Tags</dt><dd>{{ status.tags }}</dd>
+        <dt>Album cover</dt><dd>{{ status.cover }}</dd>
+        <dt>Lyrics file</dt><dd>{{ status.lyrics }}</dd>
+        <dt>Embedded artwork</dt><dd>{{ 'present' if status.embedded_cover else 'not checked' if status.tags == 'unchecked' else 'missing' }}</dd>
+        <dt>Embedded lyrics</dt><dd>{{ 'present' if status.embedded_lyrics else 'not checked' if status.tags == 'unchecked' else 'missing' }}</dd>
+      </dl>
+      {% if status.audio == 'present' %}
+        <p>Repair tags and fill missing artwork and lyrics using the saved audio. Existing cover and lyrics files are kept. Users sharing this recording receive the same repaired file.</p>
+        <form method="post" action="/library/files/{{ item.id }}/repair">
+          <input type="hidden" name="csrf" value="{{ user.csrf }}">
+          <p><label><input type="checkbox" name="embed_cover" value="yes"> Embed artwork (AAC with JPEG or PNG artwork)</label></p>
+          <p><label><input type="checkbox" name="embed_lyrics" value="yes"> Embed lyrics where available</label></p>
+          <button type="submit">Repair saved file</button>
+        </form>
+        <p>After repair, refresh the music library in Jellyfin. Lyrics are saved beside the track as .lrc or .txt files.</p>
+      {% endif %}
+    {% else %}
+      <p>Saved file repair is unavailable.</p>
+    {% endif %}
+    <p><a href="/library">Back to Saved library</a></p>
+  </section>
+{% endblock %}

@@ -507,7 +507,7 @@ def test_migration_nineteen_preserves_membership(correction_service):
         == SOURCE
     )
     with database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
         assert not connection.execute("PRAGMA foreign_key_check").fetchall()
 
 

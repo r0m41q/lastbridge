@@ -1,5 +1,6 @@
 import asyncio
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -34,6 +35,7 @@ class AudioFiles:
         media_placement=None,
         metadata_writer=None,
         descriptor_factory=None,
+        enrichment_store=None,
     ):
         self.directory = directory
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -58,6 +60,7 @@ class AudioFiles:
         self.media_placement = media_placement
         self.metadata_writer = metadata_writer
         self.descriptor_factory = descriptor_factory
+        self.enrichment_store = enrichment_store
         self.media_mode = all(
             value is not None
             for value in (
@@ -114,6 +117,23 @@ class AudioFiles:
             key = f"{record.source}-{record.policy}"
             path = self.saved_directory / record.relative_path
             try:
+                if not path.resolve().is_relative_to(
+                    self.saved_directory.resolve()
+                ) or path.resolve() != (
+                    self.saved_directory.resolve() / record.relative_path
+                ):
+                    raise OSError("Invalid saved audio path")
+                backup = path.with_name(f".lastbridge-repair-{path.name}.bak")
+                if backup.is_file() and not backup.is_symlink():
+                    # Recover an interrupted enrichment publication using
+                    # the committed size, before validating the inventory.
+                    if (
+                        not path.is_file()
+                        or path.stat().st_size != record.size
+                    ):
+                        os.replace(backup, path)
+                    else:
+                        backup.unlink()
                 if (
                     not KEY.fullmatch(key)
                     or not path.is_file()
@@ -392,7 +412,7 @@ class AudioFiles:
                 size=size,
                 provider_identity=record.provider_identity or key,
             )
-        except (OSError, RuntimeError):
+        except OSError, RuntimeError:
             self._transition_media(record, "pending")
             raise OSError("Saved audio publication failed") from None
         entry["size"] = record.size
@@ -409,6 +429,22 @@ class AudioFiles:
         if record is not None:
             self._transition_media(record, "deleting")
         path = self.path(key, entry)
+        if record is not None and self.enrichment_store is not None:
+            owned = self.enrichment_store.get(
+                record.source, record.policy
+            ).get("owned_lyrics")
+            if owned:
+                for suffix in (".lrc", ".txt"):
+                    sidecar = path.with_suffix(suffix)
+                    if (
+                        sidecar.name == owned.get("name")
+                        and not sidecar.is_symlink()
+                        and sidecar.is_file()
+                        and sidecar.stat().st_size <= 256 * 1024
+                        and hashlib.sha256(sidecar.read_bytes()).hexdigest()
+                        == owned.get("sha256")
+                    ):
+                        sidecar.unlink()
         path.unlink(missing_ok=True)
         if record is not None:
             self.media_files.delete(record.source, record.policy)

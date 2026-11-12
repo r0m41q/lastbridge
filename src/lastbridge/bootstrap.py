@@ -65,6 +65,9 @@ from lastbridge.features.playback.adapters.catalog import CatalogArtwork
 from lastbridge.features.playback.adapters.filesystem.artwork import (
     AlbumCovers,
 )
+from lastbridge.features.playback.adapters.filesystem.enrichment import (
+    EnrichmentFiles,
+)
 from lastbridge.features.playback.adapters.filesystem.metadata import (
     MetadataWriter,
 )
@@ -82,6 +85,9 @@ from lastbridge.features.playback.adapters.provider import (
 from lastbridge.features.playback.adapters.rhythmax.provider import (
     AudioProvider as RhythmaxAudioProvider,
 )
+from lastbridge.features.playback.adapters.sqlite.enrichment import (
+    EnrichmentRepository,
+)
 from lastbridge.features.playback.adapters.sqlite.queue import QueueRepository
 from lastbridge.features.playback.adapters.sqlite.repository import (
     MediaFileRepository,
@@ -90,6 +96,7 @@ from lastbridge.features.playback.adapters.youtube.provider import (
     AudioProvider,
 )
 from lastbridge.features.playback.application.artwork import SavedArtwork
+from lastbridge.features.playback.application.enrichment import SavedEnrichment
 from lastbridge.features.playback.application.media import MediaPlacement
 from lastbridge.features.playback.application.ports import (
     AudioProvider as AudioProviderPort,
@@ -141,6 +148,7 @@ class Services:
     catalog: Catalog
     library: Library
     corrections: RecordingCorrections
+    enrichment: SavedEnrichment | None
     audio: AudioCache
     play_queue: PlayQueue
     http_client: httpx.AsyncClient
@@ -291,6 +299,7 @@ async def bootstrap(
                 media_placement=media_placement,
                 metadata_writer=metadata_writer,
                 descriptor_factory=descriptor_factory,
+                enrichment_store=EnrichmentRepository(database),
             )
             if selected.audio is None:
 
@@ -340,8 +349,6 @@ async def bootstrap(
         )
         resources.push_async_callback(play_queue.close)
         resources.push_async_callback(library.close)
-        if saved_artwork is not None and start_workers:
-            saved_artwork.start()
         await library.start(audio, worker=start_workers)
 
         dashboard = DashboardRepository(database, audio_settings.policy)
@@ -363,6 +370,21 @@ async def bootstrap(
         resources.push_async_callback(radio.close)
         lyrics = Lyrics(LyricsRepository(database), catalog, Lrclib(client))
         resources.push_async_callback(lyrics.close)
+        enrichment = None
+        if media_files is not None:
+            enrichment = SavedEnrichment(
+                EnrichmentRepository(database),
+                media_files,
+                EnrichmentFiles(audio, saved_artwork.covers, metadata_writer),
+                catalog,
+                lyrics,
+                descriptor_factory,
+                saved_artwork.source,
+                saved_artwork.covers,
+            )
+            saved_artwork.enrichment = enrichment
+            if start_workers:
+                saved_artwork.start()
         sync = LastfmSync(
             SyncRepository(database),
             catalog,
@@ -406,6 +428,7 @@ async def bootstrap(
             catalog=catalog,
             library=library,
             corrections=corrections,
+            enrichment=enrichment,
             audio=audio,
             play_queue=play_queue,
             http_client=client,

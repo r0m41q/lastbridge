@@ -4,6 +4,9 @@ from fastapi.responses import RedirectResponse
 from lastbridge.features.library.adapters.browser.corrections import (
     router as corrections_router,
 )
+from lastbridge.features.library.adapters.browser.enrichment import (
+    router as enrichment_router,
+)
 from lastbridge.transport.browser.dependencies import (
     current_user,
     protected_form,
@@ -13,6 +16,7 @@ from lastbridge.transport.http.context import services
 
 router = APIRouter()
 router.include_router(corrections_router)
+router.include_router(enrichment_router)
 
 
 @router.get("/library")
@@ -20,11 +24,17 @@ async def library_page(request: Request):
     user = current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
+    svc = services(request)
+    downloads = svc.library.downloads(user["id"])
+    if svc.enrichment is not None:
+        for item in downloads:
+            source = svc.library.recording(user["id"], item["id"])["source"]
+            item["file"] = svc.enrichment.report(source, svc.library.policy)
     return render(
         "library/index.html",
         Page("Saved library", "/library", "dashboard"),
         user=user,
-        downloads=services(request).library.downloads(user["id"]),
+        downloads=downloads,
     )
 
 

@@ -12,4 +12,5 @@ pytest_plugins = (
     "support.mixes",
     "support.imports",
     "support.corrections",
+    "support.enrichment",
 )

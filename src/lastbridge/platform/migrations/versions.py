@@ -7,6 +7,9 @@ from lastbridge.platform.migrations.audio import (
     SCHEMA as AUDIO_SCHEMA,
 )
 from lastbridge.platform.migrations.discovery import SCHEMA as MIX_SCHEMA
+from lastbridge.platform.migrations.enrichment import (
+    SCHEMA as ENRICHMENT_SCHEMA,
+)
 from lastbridge.platform.migrations.import_queue import (
     SCHEMA as IMPORT_QUEUE_SCHEMA,
 )
@@ -55,7 +58,7 @@ SCHEMA = (
 def migrate(database, credentials):
     with database.transaction() as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 20:
+        if version > 21:
             raise RuntimeError("Database is newer than this application")
         if version == 0:
             for statement in SCHEMA:
@@ -284,6 +287,9 @@ def migrate(database, credentials):
                     "TEXT REFERENCES catalog(id)"
                 )
             connection.execute("PRAGMA user_version=20")
+        if version < 21:
+            connection.execute(ENRICHMENT_SCHEMA)
+            connection.execute("PRAGMA user_version=21")
         check = connection.execute(
             "SELECT value FROM credential_check"
         ).fetchone()[0]

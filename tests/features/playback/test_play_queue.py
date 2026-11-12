@@ -179,6 +179,6 @@ def test_version_eighteen_upgrade_creates_private_queues(tmp_path):
     repository.save(user_id, {"ids": [], "position": 0})
     assert repository.get(user_id) == {"ids": [], "position": 0}
     with accounts.repository.database.transaction() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
         connection.execute("DELETE FROM users WHERE id=?", (user_id,))
     assert repository.get(user_id) is None

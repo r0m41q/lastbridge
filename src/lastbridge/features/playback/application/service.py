@@ -266,6 +266,6 @@ class AudioCache:
         self.scheduler.waiters.clear()
         self.scheduler.active.clear()
         self.roles.clear()
-        self.storage.close()
         if self.ready_notifier is not None:
             await self.ready_notifier.close()
+        self.storage.close()

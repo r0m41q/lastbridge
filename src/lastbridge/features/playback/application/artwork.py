@@ -23,9 +23,11 @@ class SavedArtwork:
         source: ArtworkSource,
         covers: AlbumCovers,
         notifier: ReadyNotifier | None = None,
+        enrichment=None,
     ):
         self.repository, self.source, self.covers = repository, source, covers
         self.notifier = notifier
+        self.enrichment = enrichment
         self.wake = asyncio.Event()
         self.task = None
         self.scan_pending = True
@@ -43,6 +45,8 @@ class SavedArtwork:
         for record in self.repository.list():
             if record.state != "ready" or not record.relative_path:
                 continue
+            if self.enrichment is not None:
+                changed = await self.enrichment.populate(record) or changed
             album = str(PurePosixPath(record.relative_path).parent)
             if album in completed:
                 continue

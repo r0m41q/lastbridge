@@ -51,7 +51,7 @@ Audio providers, format, and cache limits are also in **Administration**. The fi
 
 Storage defaults to `./data`. To use separate disks, set `LASTBRIDGE_DATA_DIR_HOST` for the database and cache, and `LASTBRIDGE_SAVED_AUDIO_DIR_HOST` for saved music. Both directories must be writable by the container's user, UID `10001`.
 
-Point Jellyfin at the saved music directory; Lastbridge writes audio tags and album covers there. Optional scan notifications are configured in [.env.example](.env.example).
+Point Jellyfin at the saved music directory; Lastbridge writes audio tags, album covers, and lyrics there. Use **Saved file** in Saved library to repair tags and fill missing artwork or lyrics without downloading again. Optional scan notifications are configured in [.env.example](.env.example).
 
 Before upgrading, stop Lastbridge and back up the data and saved music directories together, including `credentials.key`.
 

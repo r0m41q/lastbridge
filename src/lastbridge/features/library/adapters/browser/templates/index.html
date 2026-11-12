@@ -26,11 +26,15 @@
                 <td>
                   {{ item.title }}
                   <a href="/library/recordings/song/{{ item.id }}">Choose recording</a>
+                  <a href="/library/files/{{ item.id }}">Saved file</a>
                 </td>
                 <td>
                   {{ badge(state, 'good' if state == 'saved' else 'warm') }}
                   {% if item.error %}
                     : {{ item.error }}
+                  {% endif %}
+                  {% if item.file is defined and state == 'saved' %}
+                    <div>Audio: {{ item.file.audio }} · Tags: {{ item.file.tags }} · Cover: {{ item.file.cover }} · Lyrics: {{ item.file.lyrics }}</div>
                   {% endif %}
                 </td>
                 <td>
