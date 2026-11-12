@@ -12,6 +12,7 @@ from lastbridge.features.playback.application.ports import (
     ReadyNotifier,
     ResponseFactory,
 )
+from lastbridge.features.playback.application.scheduling import AudioScheduler
 from lastbridge.features.playback.domain.models import VIDEO_ID
 from lastbridge.shared.errors import CatalogError
 
@@ -32,6 +33,10 @@ class AudioCache:
         self.provider = provider
         self.response_factory = response_factory
         self.ready_notifier = ready_notifier
+        self.scheduler = AudioScheduler()
+        self.changed = asyncio.Event()
+        self.wait_timeout = 30
+        self.roles = {}
 
     async def configure(self, settings: AudioConfiguration):
         if settings.stream_provider not in ("youtube", "jumo", "rhythmax") or (
@@ -39,9 +44,11 @@ class AudioCache:
         ):
             raise ValueError("Select a supported audio provider.")
         configure = getattr(self.provider, "configure", None)
-        if configure is not None:
-            await configure(settings)
         async with self.storage.lock:
+            if self.storage.jobs:
+                raise ValueError("Audio settings busy; retry after downloads")
+            if configure is not None:
+                await configure(settings)
             self.storage.budget = settings.cache_bytes
             self.storage.maximum = min(
                 settings.file_max_bytes, settings.cache_bytes // 2
@@ -89,30 +96,35 @@ class AudioCache:
             await self.ready_notifier.notify()
         return True
 
-    async def acquire(self, source, role="stream"):
+    async def acquire(
+        self, source, role="stream", *, background=False, prefetch=False
+    ):
         if not VIDEO_ID.fullmatch(source):
             raise CatalogError(70, "Recording not found")
         key = f"{source}-{self.storage.policy}"
+        priority = 2 if prefetch else 1 if background else 0
         try:
             async with self.storage.lock:
                 if self.storage.closed:
                     raise CatalogError(0, "Audio cache is shutting down")
                 entry = self.storage.cached_entry(key)
                 if not entry and key not in self.storage.jobs:
-                    if len(self.storage.jobs) >= 2:
+                    if len(self.storage.jobs) >= 64:
                         raise CatalogError(
                             0, "Audio provider busy; retry shortly"
                         )
-                    self.storage.trim(self.storage.allowance)
-                    # Reserve against concurrent jobs on the same filesystem.
-                    self.storage.check_space()
-                    self.storage.reserved += self.storage.allowance
-                    task = asyncio.create_task(self.fill(source, key, role))
+                    self.scheduler.submit(key, priority)
+                    self.roles[key] = role
+                    task = asyncio.create_task(self.fill(source, key))
                     self.storage.jobs[key] = task
                     # Retrieve errors even when all requesting clients cancel.
                     task.add_done_callback(
                         lambda t: None if t.cancelled() else t.exception()
                     )
+                elif not entry:
+                    if role == "stream":
+                        self.roles[key] = "stream"
+                    self.scheduler.promote(key, priority)
                 self.storage.leases[key] += 1
                 job = self.storage.jobs.get(key)
             try:
@@ -142,13 +154,45 @@ class AudioCache:
         except OSError:
             raise CatalogError(0, "Audio storage unavailable") from None
 
-    async def fill(self, source, key, role="stream"):
+    async def admit(self, key):
+        try:
+            async with asyncio.timeout(self.wait_timeout):
+                await self.scheduler.wait(key)
+                while True:
+                    async with self.storage.lock:
+                        if self.storage.closed:
+                            raise CatalogError(
+                                0, "Audio cache is shutting down"
+                            )
+                        self.changed.clear()
+                        try:
+                            self.storage.trim(self.storage.allowance)
+                        except CatalogError as error:
+                            if (
+                                error.message
+                                != "Audio cache busy; retry shortly"
+                            ):
+                                raise
+                        else:
+                            self.storage.check_space()
+                            allowance = self.storage.allowance
+                            self.storage.reserved += allowance
+                            return allowance
+                    await self.changed.wait()
+        except TimeoutError:
+            raise CatalogError(
+                0, "Audio acquisition queue timed out; retry"
+            ) from None
+
+    async def fill(self, source, key):
         destination = None
         saved = False
+        allowance = 0
         try:
+            allowance = await self.admit(key)
             with self.storage.staging() as directory:
                 provider = getattr(self.provider, "for_role", lambda _: None)(
-                    role
+                    self.roles[key]
                 )
                 if provider is None:
                     provider = self.provider
@@ -173,8 +217,12 @@ class AudioCache:
                 if destination is not None and key not in self.storage.entries:
                     with contextlib.suppress(OSError):
                         self.storage.discard(destination)
-                self.storage.reserved -= self.storage.allowance
-                self.storage.jobs.pop(key, None)
+                self.storage.reserved -= allowance
+                self.changed.set()
+                if self.storage.jobs.get(key) is asyncio.current_task():
+                    self.storage.jobs.pop(key, None)
+                    self.roles.pop(key, None)
+                    self.scheduler.finish(key)
 
     async def response(self, source, download=False):
         role = "download" if download else "stream"
@@ -190,6 +238,11 @@ class AudioCache:
             self.storage.leases[key] -= 1
             if not self.storage.leases[key]:
                 del self.storage.leases[key]
+                self.changed.set()
+                if key in self.scheduler.waiters:
+                    self.storage.jobs.pop(key).cancel()
+                    self.roles.pop(key, None)
+                    self.scheduler.finish(key)
                 entry = self.storage.entries.get(key)
                 if (
                     entry
@@ -204,10 +257,15 @@ class AudioCache:
 
     async def close(self):
         self.storage.closed = True
+        self.scheduler.closed = True
         jobs = list(self.storage.jobs.values())
         for task in jobs:
             task.cancel()
         await asyncio.gather(*jobs, return_exceptions=True)
+        self.storage.jobs.clear()
+        self.scheduler.waiters.clear()
+        self.scheduler.active.clear()
+        self.roles.clear()
         self.storage.close()
         if self.ready_notifier is not None:
             await self.ready_notifier.close()

@@ -26,9 +26,14 @@ async def audio(request, method, values, user):
         )
         if method == "stream" and request.method != "HEAD":
             services(request).radio.warm(user_id, song["id"])
-        return await services(request).audio.response(
+        response = await services(request).audio.response(
             song["source"], download=method == "download"
         )
+        if method == "stream" and request.method != "HEAD":
+            services(request).play_queue.playing(
+                user_id, values.get("c", ""), song["id"]
+            )
+        return response
     except CatalogError as error:
         logger.warning(
             "Audio request failed method=%s user_id=%s code=%s reason=%s",

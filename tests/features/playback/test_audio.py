@@ -255,13 +255,20 @@ def test_busy_cache_protects_active_files_and_limits_jobs(tmp_path):
             asyncio.create_task(cache.acquire(s)) for s in (SOURCE, OTHER)
         ]
         await asyncio.sleep(0)
+        await asyncio.sleep(0)
         assert cache.storage.reserved == 32_768
-        with pytest.raises(CatalogError, match="provider busy"):
-            await cache.acquire(THIRD)
+        queued = asyncio.create_task(cache.acquire(THIRD))
+        await asyncio.sleep(0)
+        assert not queued.done()
+        assert len(cache.storage.jobs) == 3
+        queued.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await queued
         finish.set()
         entries = await asyncio.gather(*tasks)
         cache.storage.budget = 16_384
-        with pytest.raises(CatalogError, match="cache busy"):
+        cache.wait_timeout = 0.01
+        with pytest.raises(CatalogError, match="queue timed out"):
             await cache.acquire(THIRD)
         assert len(cache.entries) == 2
         for key, _ in entries:

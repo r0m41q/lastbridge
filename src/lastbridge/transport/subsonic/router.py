@@ -41,14 +41,16 @@ async def endpoint(request: Request, method: str):
             if method in ("star", "unstar")
             else frozenset({"id", "time"})
             if method == "scrobble"
+            else frozenset({"id"})
+            if method == "savePlayQueue"
             else frozenset({"songId", "songIdToAdd", "songIndexToRemove"})
             if method in ("createPlaylist", "updatePlaylist")
             else frozenset(),
             field_limit=2048
-            if method in ("createPlaylist", "updatePlaylist")
+            if method in ("createPlaylist", "updatePlaylist", "savePlayQueue")
             else 128,
             body_limit=262144
-            if method in ("createPlaylist", "updatePlaylist")
+            if method in ("createPlaylist", "updatePlaylist", "savePlayQueue")
             else None,
         )
     except HTTPException:

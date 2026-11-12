@@ -79,6 +79,7 @@ from lastbridge.features.playback.adapters.provider import (
 from lastbridge.features.playback.adapters.rhythmax.provider import (
     AudioProvider as RhythmaxAudioProvider,
 )
+from lastbridge.features.playback.adapters.sqlite.queue import QueueRepository
 from lastbridge.features.playback.adapters.sqlite.repository import (
     MediaFileRepository,
 )
@@ -90,6 +91,7 @@ from lastbridge.features.playback.application.media import MediaPlacement
 from lastbridge.features.playback.application.ports import (
     AudioProvider as AudioProviderPort,
 )
+from lastbridge.features.playback.application.queue import PlayQueue
 from lastbridge.features.playback.application.service import AudioCache
 from lastbridge.features.playback.domain.models import MediaDescriptor
 from lastbridge.features.playlists.adapters.sqlite.imports import (
@@ -133,6 +135,7 @@ class Services:
     catalog: Catalog
     library: Library
     audio: AudioCache
+    play_queue: PlayQueue
     http_client: httpx.AsyncClient
     lastfm: Lastfm
     lyrics: Lyrics
@@ -319,6 +322,8 @@ async def bootstrap(
         except Exception:
             raise RuntimeError("Cannot initialize audio cache") from None
         resources.push_async_callback(audio.close)
+        play_queue = PlayQueue(QueueRepository(database), catalog, audio)
+        resources.push_async_callback(play_queue.close)
         resources.push_async_callback(library.close)
         if saved_artwork is not None and start_workers:
             saved_artwork.start()
@@ -362,9 +367,7 @@ async def bootstrap(
         resources.push_async_callback(mixes.close)
         imports = Imports(
             ImportRepository(database),
-            PlaylistProvider(
-                catalog.provider.fetch, catalog.song
-            ),
+            PlaylistProvider(catalog.provider.fetch, catalog.song),
             catalog,
             library,
         )
@@ -388,6 +391,7 @@ async def bootstrap(
             catalog=catalog,
             library=library,
             audio=audio,
+            play_queue=play_queue,
             http_client=client,
             lastfm=lastfm,
             lyrics=lyrics,

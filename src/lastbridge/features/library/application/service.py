@@ -112,7 +112,9 @@ class Library:
             return False
         key = None
         try:
-            key, _ = await self.audio.acquire(job["source"], role="download")
+            key, _ = await self.audio.acquire(
+                job["source"], role="download", background=True
+            )
             saved = await self.audio.retain(key)
             if saved:
                 self.repository.complete(job["source"])
@@ -130,6 +132,7 @@ class Library:
                 "Audio provider busy; retry shortly",
                 "Audio cache busy; retry shortly",
                 "Audio acquisition timed out; retry",
+                "Audio acquisition queue timed out; retry",
             }
             if isinstance(error, CatalogError) and error.message in reasons:
                 message = "Download failed: " + error.message

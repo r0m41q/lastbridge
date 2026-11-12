@@ -21,6 +21,9 @@ from lastbridge.features.lyrics.adapters.subsonic.handlers import (
 from lastbridge.features.playback.adapters.subsonic.handlers import (
     HANDLERS as playback,
 )
+from lastbridge.features.playback.adapters.subsonic.queue import (
+    HANDLERS as play_queue,
+)
 from lastbridge.features.playlists.adapters.subsonic.handlers import (
     HANDLERS as playlists,
 )
@@ -43,5 +46,6 @@ HANDLERS = {
     **accounts,
     **playlists,
     **playback,
+    **play_queue,
     **library_albums,
 }

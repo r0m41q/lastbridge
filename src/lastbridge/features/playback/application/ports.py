@@ -102,3 +102,19 @@ class MediaFiles(Protocol):
 
 
 ResponseFactory = Callable[..., object]
+
+
+class QueueStore(Protocol):
+    def get(self, user_id: int) -> dict | None: ...
+    def save(self, user_id: int, document: dict): ...
+
+
+class QueueCatalog(Protocol):
+    def read(self, item_id: str, kind: str) -> dict: ...
+
+
+class QueueAudio(Protocol):
+    async def acquire(
+        self, source: str, role: str = "stream", *, prefetch: bool = False
+    ) -> tuple[str, dict]: ...
+    async def release(self, key: str): ...

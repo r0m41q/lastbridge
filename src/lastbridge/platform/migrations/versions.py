@@ -52,7 +52,7 @@ SCHEMA = (
 def migrate(database, credentials):
     with database.transaction() as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 18:
+        if version > 19:
             raise RuntimeError("Database is newer than this application")
         if version == 0:
             for statement in SCHEMA:
@@ -260,6 +260,14 @@ def migrate(database, credentials):
                 "playlist_imports(state,next_attempt,queued_at)"
             )
             connection.execute("PRAGMA user_version=18")
+        if version < 19:
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS play_queues ("
+                "user_id INTEGER PRIMARY KEY "
+                "REFERENCES users(id) ON DELETE CASCADE, "
+                "document TEXT NOT NULL)"
+            )
+            connection.execute("PRAGMA user_version=19")
         check = connection.execute(
             "SELECT value FROM credential_check"
         ).fetchone()[0]
