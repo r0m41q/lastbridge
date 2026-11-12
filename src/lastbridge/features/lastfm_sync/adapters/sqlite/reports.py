@@ -201,7 +201,8 @@ class ReportRepository:
                 items = [
                     dict(r)
                     for r in connection.execute(
-                        "SELECT recording_key,artist,title,state,error "
+                        "SELECT recording_key,artist,title,state,error,"
+                        "review_skipped "
                         "FROM loved_items "
                         "WHERE user_id=? AND target=? AND state IN "
                         "('unmatched','skipped') "

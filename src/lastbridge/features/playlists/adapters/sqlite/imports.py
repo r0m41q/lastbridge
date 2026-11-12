@@ -4,7 +4,11 @@ import json
 import time
 from uuid import uuid4
 
-from lastbridge.features.playlists.domain.imports import DAY, reviewed_entries
+from lastbridge.features.playlists.domain.imports import (
+    DAY,
+    normalized_entries,
+    reviewed_entries,
+)
 from lastbridge.features.playlists.domain.matching import identity
 from lastbridge.shared.errors import CatalogError
 
@@ -15,9 +19,12 @@ class ImportRepository:
 
     @staticmethod
     def decode(row):
+        progress = json.loads(row["progress"])
+        if "entries" in progress:
+            progress["entries"] = normalized_entries(progress["entries"])
         return dict(row) | {
-            "entries": json.loads(row["entries"]),
-            "progress": json.loads(row["progress"]),
+            "entries": normalized_entries(json.loads(row["entries"])),
+            "progress": progress,
             "title": row["custom_title"] or row["title"],
         }
 
@@ -149,9 +156,20 @@ class ImportRepository:
         return {
             "matches": progress.get("matches", {}),
             "decisions": progress.get("decisions", {}),
+            "originals": progress.get("originals", {}),
+            "review_undo": progress.get("review_undo"),
         }
 
-    def decide(self, user, item_id, source_key, song_id, acknowledge):
+    def decide(
+        self,
+        user,
+        item_id,
+        source_key,
+        song_id,
+        acknowledge,
+        action="choose",
+        undo="",
+    ):
         with self.database.transaction() as connection:
             row = connection.execute(
                 "SELECT * FROM playlist_imports WHERE id=? AND "
@@ -168,14 +186,42 @@ class ImportRepository:
                 and row["updated"] < time.time() - 3600
             ):
                 raise CatalogError(70, "Preview expired")
-            progress = json.loads(row["progress"])
-            published = json.loads(row["entries"])
+            decoded = self.decode(row)
+            progress, published = decoded["progress"], decoded["entries"]
             entries = progress.get("entries", []) + published
             entries = [e for e in entries if e.get("source_key") == source_key]
             if not entries:
                 raise CatalogError(10, "Entry unavailable")
             decisions = progress.setdefault("decisions", {})
-            if song_id:
+            originals = progress.setdefault("originals", {})
+            originals.setdefault(source_key, entries[0])
+            previous = decisions.get(source_key)
+            if action == "undo":
+                saved = progress.get("review_undo") or {}
+                if (
+                    saved.get("token") != undo
+                    or saved.get("key") != source_key
+                ):
+                    raise CatalogError(10, "Choice changed; reopen this track")
+                previous_choice = saved["decision"]
+                if previous_choice is None:
+                    decisions.pop(source_key, None)
+                else:
+                    decisions[source_key] = previous_choice
+            elif action == "skip":
+                included = previous
+                if previous and previous.get("skipped"):
+                    included = previous.get("included")
+                decisions[source_key] = {
+                    "song_id": None,
+                    "skipped": True,
+                    "included": included,
+                }
+            elif action == "restore" and previous and previous.get("included"):
+                decisions[source_key] = previous["included"]
+            elif action == "restore" or (action == "choose" and not song_id):
+                decisions.pop(source_key, None)
+            elif action == "choose":
                 candidates = [
                     c
                     for e in entries
@@ -187,42 +233,51 @@ class ImportRepository:
                 if candidates[0]["mismatch"] and not acknowledge:
                     raise CatalogError(10, "Acknowledge recording mismatch")
                 decisions[source_key] = candidates[0]
-                published = reviewed_entries(published, decisions)
-                if "entries" in progress:
-                    progress["entries"] = reviewed_entries(
-                        progress["entries"], decisions
-                    )
-                counted = progress.get("entries")
-                if counted is None and row["phase"] == "complete":
-                    counted = published
-                matched = (
-                    sum(bool(e.get("song_id")) for e in counted)
-                    if counted is not None
-                    else row["matched"]
-                )
-                connection.execute(
-                    "UPDATE playlist_imports SET entries=?,progress=?,"
-                    "matched=?,updated=? WHERE id=?",
-                    (
-                        json.dumps(published),
-                        json.dumps(progress),
-                        matched,
-                        time.time()
-                        if published != json.loads(row["entries"])
-                        else row["updated"],
-                        item_id,
-                    ),
-                )
-                return
             else:
-                decisions.pop(source_key, None)
-            progress = self.fresh(progress)
-            connection.execute(
-                "UPDATE playlist_imports SET state='queued',phase='fetch',"
-                "progress=?,processed=0,total=0,matched=0,attempts=0,"
-                "token=NULL,error=NULL,next_attempt=0,queued_at=? WHERE id=?",
-                (json.dumps(progress), time.time(), item_id),
+                raise CatalogError(10, "Unknown review action")
+            ticket = uuid4().hex
+            progress["review_undo"] = {
+                "token": ticket,
+                "key": source_key,
+                "decision": previous,
+            }
+
+            def apply(rows):
+                return reviewed_entries(
+                    [
+                        (originals[source_key] | {"position": e["position"]})
+                        if e.get("source_key") == source_key
+                        else e
+                        for e in rows
+                    ],
+                    decisions,
+                )
+
+            published = apply(published)
+            if "entries" in progress:
+                progress["entries"] = apply(progress["entries"])
+            counted = progress.get("entries")
+            if counted is None and row["phase"] == "complete":
+                counted = published
+            matched = (
+                sum(bool(e.get("song_id")) for e in counted)
+                if counted is not None
+                else row["matched"]
             )
+            connection.execute(
+                "UPDATE playlist_imports SET entries=?,progress=?,"
+                "matched=?,updated=? WHERE id=?",
+                (
+                    json.dumps(published),
+                    json.dumps(progress),
+                    matched,
+                    time.time()
+                    if published != json.loads(row["entries"])
+                    else row["updated"],
+                    item_id,
+                ),
+            )
+            return ticket
 
     def request(self, item_id):
         with self.database.transaction() as connection:
@@ -302,13 +357,35 @@ class ImportRepository:
             for track in progress.get("tracks", [])
             if isinstance(track, dict)
         } | {entry.get("source_key") for entry in progress["entries"]}
-        saved = json.loads(row["progress"]).get("decisions", {})
+        current = json.loads(row["progress"])
+        saved = current.get("decisions", {})
         decisions = {
-            key: decision for key, decision in saved.items() if key in keys
+            key: decision
+            for key, decision in saved.items()
+            if key in keys or decision.get("skipped")
         }
+        originals = {
+            key: entry
+            for key, entry in current.get("originals", {}).items()
+            if key in keys or key in decisions
+        }
+        for entry in progress["entries"]:
+            key = entry.get("source_key")
+            if (
+                key
+                and not entry.get("reviewed")
+                and (key in decisions or key in originals)
+            ):
+                originals[key] = entry
+        entries = [
+            originals.get(e.get("source_key"), e) | {"position": e["position"]}
+            for e in progress["entries"]
+        ]
         return progress | {
             "decisions": decisions,
-            "entries": reviewed_entries(progress["entries"], decisions),
+            "originals": originals,
+            "review_undo": current.get("review_undo"),
+            "entries": reviewed_entries(entries, decisions),
         }
 
     def checkpoint(self, job, progress):

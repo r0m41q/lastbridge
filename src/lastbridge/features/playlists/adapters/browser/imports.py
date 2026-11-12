@@ -1,10 +1,13 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from lastbridge.features.playlists.adapters.browser.access import (
     require_playlist_access,
+)
+from lastbridge.features.playlists.adapters.browser.review import (
+    review_model,
 )
 from lastbridge.shared.errors import CatalogError, StorageError
 from lastbridge.transport.browser.dependencies import (
@@ -12,6 +15,7 @@ from lastbridge.transport.browser.dependencies import (
     protected_form,
 )
 from lastbridge.transport.browser.rendering import Page, render
+from lastbridge.transport.browser.review import wants_json
 from lastbridge.transport.http.context import services
 
 router = APIRouter()
@@ -53,6 +57,9 @@ async def report(request: Request, item_id: str):
         raise failure(error) from None
     except StorageError:
         raise HTTPException(503, "Import queue storage unavailable") from None
+    model = review_model(item, user)
+    if wants_json(request):
+        return JSONResponse(model)
     entries = (
         item["progress"].get("entries", [])
         if not item["ready"] and item["state"] != "complete"
@@ -63,6 +70,7 @@ async def report(request: Request, item_id: str):
         Page("Playlist import", "/playlists", "dashboard"),
         user=user,
         item=item,
+        review=model,
         updated=datetime.fromtimestamp(item["updated"], UTC).strftime(
             "%Y-%m-%d %H:%M UTC"
         ),
@@ -82,15 +90,27 @@ async def change(request: Request, item_id: str, action: str):
     imports = services(request).playlists.imports
     target = "/playlists"
     try:
-        if action == "choose":
-            imports.decide(
+        if action in ("choose", "skip", "restore", "undo"):
+            ticket = imports.decide(
                 user,
                 item_id,
                 values.get("source_key", ""),
                 values.get("song_id", ""),
                 values.get("acknowledge") == "yes",
+                action,
+                values.get("undo", ""),
             )
             target = "/playlist-imports/" + item_id
+            if wants_json(request):
+                return JSONResponse(
+                    {
+                        "model": review_model(
+                            imports.get(user, item_id), user
+                        ),
+                        "undo": ticket,
+                        "key": values.get("source_key", ""),
+                    }
+                )
         elif action == "confirm":
             imports.confirm(user, item_id)
         elif action == "refresh":

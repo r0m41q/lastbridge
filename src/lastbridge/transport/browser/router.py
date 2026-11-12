@@ -48,3 +48,11 @@ async def favicon():
         Path(__file__).with_name("static") / "favicon.svg",
         media_type="image/svg+xml",
     )
+
+
+@router.get("/assets/recording-review.js", include_in_schema=False)
+async def recording_review_script():
+    return FileResponse(
+        Path(__file__).with_name("static") / "recording-review.js",
+        media_type="text/javascript",
+    )

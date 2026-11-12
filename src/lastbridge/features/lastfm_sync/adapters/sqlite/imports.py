@@ -27,7 +27,7 @@ class ImportRepository:
             )
             item = connection.execute(
                 "SELECT * FROM loved_items WHERE user_id=? AND target=? "
-                "AND state='pending' AND next_attempt<=? "
+                "AND state='pending' AND review_skipped=0 AND next_attempt<=? "
                 "ORDER BY next_attempt,recording_key LIMIT 1",
                 (user_id, target, now),
             ).fetchone()
@@ -129,7 +129,7 @@ class ImportRepository:
                     "UPDATE loved_items SET state=?,song_id=?,error=?,"
                     "attempts=attempts+1,next_attempt=? WHERE user_id=? "
                     "AND target=? AND recording_key=? AND state='pending' "
-                    "AND manual_song_id IS NULL",
+                    "AND manual_song_id IS NULL AND review_skipped=0",
                     (
                         state,
                         song_id,

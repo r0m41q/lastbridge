@@ -58,7 +58,13 @@ class FavoriteRepository:
                     "AND recording_key=?",
                     (user_id, key),
                 ).fetchone()
-                if not active or removed:
+                skipped = connection.execute(
+                    "SELECT 1 FROM loved_items WHERE user_id=? AND target=? "
+                    "AND recording_key=? AND (review_skipped=1 "
+                    "OR state!='pending')",
+                    (user_id, target, key),
+                ).fetchone()
+                if not active or removed or skipped:
                     return False
                 manual = connection.execute(
                     "SELECT c.source FROM loved_items l JOIN catalog c "
@@ -150,6 +156,17 @@ class FavoriteRepository:
                         "INSERT INTO favorite_tracks VALUES(?,?,?)",
                         [(user_id, item_id, song) for song in set(tracks)],
                     )
+            if imported is not None:
+                # Publish membership and the import result together, so a skip
+                # cannot slip between adding the favorite and recording it.
+                (song_id,) = prepared
+                connection.execute(
+                    "UPDATE loved_items SET state='matched',song_id=?,"
+                    "error=NULL WHERE user_id=? AND target=? "
+                    "AND recording_key=? AND state='pending' "
+                    "AND review_skipped=0 AND manual_song_id IS NULL",
+                    (song_id, user_id, target, imported[1]),
+                )
             if changed:
                 connection.execute(
                     "UPDATE users SET "

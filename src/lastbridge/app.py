@@ -61,6 +61,7 @@ def create_app(
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Content-Security-Policy"] = (
             "default-src 'none'; style-src 'self'; "
+            "script-src 'self'; connect-src 'self'; img-src 'self'; "
             "form-action 'self' https://www.last.fm; "
             "frame-ancestors 'none'; "
             "base-uri 'none'"

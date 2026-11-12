@@ -49,15 +49,8 @@
         {% for name, label in import_actions %}
           {{ action('/lastfm/sync/' ~ name, user.csrf, label) }}
         {% endfor %}
-        <p>Up to 200 unmatched or locally removed recordings:</p>
-        <ul>
-          {% for item in items %}
-            <li>
-              {{ item.artist }} — {{ item.title }}: {{ item.state }}; {{ item.error or '' }}
-              {% if item.state == 'unmatched' %}<a href="/library/recordings/love/{{ item.recording_key }}">Choose recording</a>{% endif %}
-            </li>
-          {% endfor %}
-        </ul>
+        <p><a href="/library/recordings/loves">Review unmatched and skipped tracks</a></p>
+        <p>Local unlikes stay removed and cannot be restored from recording review.</p>
       {% else %}
         <p>No import queued. Link Last.fm to start.</p>
       {% endif %}

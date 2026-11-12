@@ -40,7 +40,7 @@ def test_schema_nine_upgrade_and_backup_restore_preserve_existing_state(
         }
     migrated = make_accounts(directory)
     with migrated.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
         assert (
             connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         )

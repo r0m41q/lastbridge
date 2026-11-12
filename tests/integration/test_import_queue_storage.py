@@ -47,7 +47,7 @@ def test_schema_seventeen_upgrade_preserves_snapshots_names_and_accounts(
         == (before["entries"])
     )
     with accounts.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == (
             "ok"
         )

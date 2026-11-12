@@ -2,11 +2,14 @@ import json
 import time
 from uuid import uuid4
 
+from lastbridge.features.library.adapters.sqlite.review_undo import (
+    ReviewUndoRepository,
+)
 from lastbridge.features.library.domain.recordings import metadata
 from lastbridge.shared.errors import CatalogError
 
 
-class CorrectionRepository:
+class CorrectionRepository(ReviewUndoRepository):
     def recording_ids(self, user_id):
         with self.database.connection() as connection:
             return dict(
@@ -47,7 +50,8 @@ class CorrectionRepository:
                 "ON i.user_id=l.user_id AND i.target=l.target "
                 "JOIN users u ON u.id=l.user_id WHERE l.user_id=? "
                 "AND l.recording_key=? AND u.link_status='linked' "
-                "AND lower(u.lastfm_name)=l.target AND l.state!='skipped' "
+                "AND lower(u.lastfm_name)=l.target "
+                "AND (l.state!='skipped' OR l.review_skipped=1) "
                 "AND NOT EXISTS (SELECT 1 FROM love_removals r "
                 "WHERE r.user_id=l.user_id "
                 "AND r.recording_key=l.recording_key)",
@@ -111,6 +115,8 @@ class CorrectionRepository:
     ):
         with self.database.transaction() as connection:
             context = self._correction_context(connection, user_id, kind, key)
+            if context.get("review_skipped"):
+                raise CatalogError(10, "Restore this track before choosing")
             if recording_id:
                 review = connection.execute(
                     "SELECT * FROM recording_reviews WHERE user_id=? "
@@ -152,6 +158,9 @@ class CorrectionRepository:
             elif kind != "song":
                 raise CatalogError(10, "Choose a recording first")
             song_id = context["song_id"]
+            before = self.review_state(
+                connection, user_id, song_id or recording_id, key
+            )
             if song_id is None:
                 song_id = recording_id
                 connection.execute(
@@ -212,4 +221,57 @@ class CorrectionRepository:
                 "WHERE id=?",
                 (int(time.time() * 1000), user_id),
             )
+            self.save_review_undo(
+                connection, user_id, kind, key, song_id, before
+            )
         return song_id
+
+    def love_review_queue(self, user_id):
+        with self.database.connection() as connection:
+            return [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT l.recording_key,l.artist,l.title,l.song_id,"
+                    "l.state,"
+                    "l.review_skipped,l.error FROM loved_items l "
+                    "JOIN love_imports i ON i.user_id=l.user_id "
+                    "AND i.target=l.target JOIN users u ON u.id=l.user_id "
+                    "WHERE l.user_id=? AND u.link_status='linked' "
+                    "AND lower(u.lastfm_name)=l.target "
+                    "AND (l.state='unmatched' OR l.review_skipped=1 "
+                    "OR (l.state='matched' AND l.manual_song_id IS NOT NULL)) "
+                    "AND NOT EXISTS (SELECT 1 FROM love_removals r "
+                    "WHERE r.user_id=l.user_id "
+                    "AND r.recording_key=l.recording_key) "
+                    "ORDER BY l.artist,l.title,l.recording_key",
+                    (user_id,),
+                )
+            ]
+
+    def skip_love_review(self, user_id, key, skipped):
+        with self.database.transaction() as connection:
+            context = self._correction_context(
+                connection, user_id, "love", key
+            )
+            if context["song_id"] is not None:
+                raise CatalogError(10, "This track is already a favorite")
+            before = self.review_state(connection, user_id, None, key)
+            connection.execute(
+                "UPDATE loved_items SET review_skipped=?,state=?,error=NULL "
+                "WHERE user_id=? AND target=? AND recording_key=?",
+                (
+                    int(skipped),
+                    "skipped" if skipped else "unmatched",
+                    user_id,
+                    context["target"],
+                    key,
+                ),
+            )
+            connection.execute(
+                "DELETE FROM recording_reviews WHERE user_id=? "
+                "AND kind='love' AND subject=?",
+                (user_id, key),
+            )
+            return self.save_review_undo(
+                connection, user_id, "love", key, None, before
+            )

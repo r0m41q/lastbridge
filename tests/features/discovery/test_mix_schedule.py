@@ -211,7 +211,7 @@ def test_v8_upgrade_preserves_snapshots_and_waits_for_activity(
     mixes.touch(uid(service))
     assert run(service, mixes.refresh_one)
     with store.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
 
 
 def test_configured_interval_changes_on_restart_without_erasing_manual_work(

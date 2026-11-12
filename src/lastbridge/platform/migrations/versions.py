@@ -58,7 +58,7 @@ SCHEMA = (
 def migrate(database, credentials):
     with database.transaction() as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 21:
+        if version > 22:
             raise RuntimeError("Database is newer than this application")
         if version == 0:
             for statement in SCHEMA:
@@ -290,6 +290,23 @@ def migrate(database, credentials):
         if version < 21:
             connection.execute(ENRICHMENT_SCHEMA)
             connection.execute("PRAGMA user_version=21")
+        if version < 22:
+            columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(loved_items)")
+            }
+            if "review_skipped" not in columns:
+                connection.execute(
+                    "ALTER TABLE loved_items ADD COLUMN review_skipped "
+                    "INTEGER NOT NULL DEFAULT 0 CHECK(review_skipped IN (0,1))"
+                )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS recording_review_undo ("
+                "user_id INTEGER PRIMARY KEY REFERENCES users(id) "
+                "ON DELETE CASCADE, token TEXT NOT NULL, "
+                "document TEXT NOT NULL, expires REAL NOT NULL)"
+            )
+            connection.execute("PRAGMA user_version=22")
         check = connection.execute(
             "SELECT value FROM credential_check"
         ).fetchone()[0]

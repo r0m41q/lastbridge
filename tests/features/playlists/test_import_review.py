@@ -50,7 +50,7 @@ def test_large_playlist_selection_is_immediate_without_provider_requests(
         },
     )
     assert response.status_code == 200
-    assert "Manually selected" in response.text
+    assert "Confirmed" in response.text
     after = imports.get(owner, item_id)
     assert after["matched"] == 151
     for field in (

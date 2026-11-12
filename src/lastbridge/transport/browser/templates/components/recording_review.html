@@ -1,0 +1,27 @@
+{% macro recording_review(model, user) %}
+<section class="panel recording-review" data-recording-review data-csrf="{{ user.csrf }}">
+  <script type="application/json" class="review-data">{{ model | tojson }}</script>
+  <div class="review-toolbar">
+    <h2>Review recordings</h2>
+    <p class="review-summary" aria-live="polite"></p>
+    <div class="review-tabs" role="group" aria-label="Track status"></div>
+    <div class="review-filters">
+      <label>Search tracks<input type="search" class="review-search" placeholder="Artist or title"></label>
+      <label>Show<select class="review-filter"><option value="all">All reasons</option><option value="none">No match</option><option value="multiple">Multiple candidates</option></select></label>
+    </div>
+  </div>
+  <div class="review-feedback" role="status" aria-live="polite"></div>
+  <div class="review-workspace">
+    <div class="review-queue">
+      <ol class="review-rows" aria-label="Tracks"></ol>
+      <div class="review-pagination" aria-label="Track pages"></div>
+    </div>
+    <dialog class="review-sheet" aria-label="Choose a recording">
+      <div class="review-detail"></div>
+    </dialog>
+  </div>
+  <noscript><p>Enable JavaScript to review recordings without reloading the page.</p>
+    <ol>{% for entry in model.entries[:25] %}<li>{{ entry.artist }} — {{ entry.title }} · {{ entry.label }}</li>{% endfor %}</ol>
+  </noscript>
+</section>
+{% endmacro %}

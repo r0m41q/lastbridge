@@ -16,12 +16,24 @@ class Snapshot:
     entries: list[dict]
 
 
+def normalized_entries(entries):
+    return [
+        entry
+        | {
+            "source_key": entry.get("source_key")
+            or f"unavailable:{entry['position']}",
+        }
+        for entry in entries
+    ]
+
+
 def reviewed_entries(entries, decisions):
     return [
         entry
         | {
             "song_id": decision["song_id"],
             "reason": None,
+            **({"skipped": True} if decision.get("skipped") else {}),
             "reviewed": True,
         }
         if (decision := decisions.get(entry.get("source_key")))

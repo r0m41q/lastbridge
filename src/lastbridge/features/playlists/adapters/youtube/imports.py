@@ -9,7 +9,11 @@ from lastbridge.features.catalog.domain.documents import image_url
 from lastbridge.features.playlists.adapters.youtube.matching import (
     PlaylistResolver,
 )
-from lastbridge.features.playlists.domain.imports import MAX_ENTRIES, Snapshot
+from lastbridge.features.playlists.domain.imports import (
+    MAX_ENTRIES,
+    Snapshot,
+    reviewed_entries,
+)
 from lastbridge.features.playlists.domain.matching import VERSION, identity
 from lastbridge.shared.errors import CatalogError, ProviderError
 
@@ -69,12 +73,14 @@ class PlaylistProvider:
                 for row in tracks
             ],
             "entries": [],
+            "originals": (previous or {}).get("originals", {}),
             "matches": matches,
             "resolver_version": VERSION,
             "decisions": {
                 key: value
                 for key, value in (previous or {}).get("decisions", {}).items()
-                if key
+                if value.get("skipped")
+                or key
                 in {identity(row) for row in tracks if isinstance(row, dict)}
             },
         }
@@ -105,10 +111,19 @@ class PlaylistProvider:
         song, key = None, None
         entry = {
             "position": position,
+            "source_key": identity(row)
+            if isinstance(row, dict)
+            else f"unavailable:{position}",
             "title": "Unavailable track",
             "artist": "",
             "song_id": None,
             "reason": "Unavailable",
+            "duration": row.get("duration_seconds")
+            if isinstance(row, dict)
+            else None,
+            "explicit": row.get("isExplicit")
+            if isinstance(row, dict)
+            else None,
         }
         if isinstance(row, dict):
             title = row.get("title")
@@ -223,13 +238,12 @@ class PlaylistProvider:
                 entry["source_key"] = source_key
                 decision = progress.get("decisions", {}).get(source_key)
                 if decision:
-                    entry.update(
-                        song_id=decision["song_id"],
-                        reason=None,
-                        reviewed=True,
-                        candidates=[decision],
-                    )
-                    return entry
+                    original = progress.get("originals", {}).get(source_key)
+                    if original:
+                        entry = original | {"position": position}
+                    elif not decision.get("skipped"):
+                        entry["candidates"] = [decision]
+                    return reviewed_entries([entry], {source_key: decision})[0]
                 if song is None:
                     cache_key = "v2:" + source_key
                     cached = matches.get(cache_key)

@@ -10,6 +10,7 @@ from support.library import run
 from lastbridge.features.playlists.adapters.youtube.matching import (
     PlaylistResolver,
 )
+from lastbridge.features.playlists.domain.imports import Snapshot
 from lastbridge.features.playlists.domain.matching import compare, identity
 
 CORPUS = json.loads(
@@ -95,12 +96,23 @@ def test_review_is_protected_fenced_persistent_and_clearable(imported_service):
     assert entry["reviewed"] and entry["song_id"] == candidate["song_id"]
     imports.confirm(owner, item_id)
     stale = imports.repository.claim(item_id)
-    imports.decide(owner, item_id, key, "")
-    assert not imports.repository.checkpoint(
-        stale, {"title": "Late", "entries": [], "tracks": []}
+    progress = run(
+        service, imports.provider.prepare, stale["source"], stale["progress"]
     )
-    assert imports.get(owner, item_id)["entries"][0]["reviewed"]
-    run(service, imports.refresh_one)
+    progress = run(service, imports.provider.batch, progress)
+    assert imports.repository.checkpoint(stale, progress)
+    imports.decide(owner, item_id, key, "")
+    cleared = imports.get(owner, item_id)
+    assert cleared["state"] == "running" and cleared["token"] == stale["token"]
+    assert not cleared["entries"][0].get("reviewed")
+    assert cleared["entries"][0]["song_id"] is None
+    # Clearing now restores the entry directly. The running refresh keeps its
+    # lease, but cannot restore a choice from an older in-flight snapshot.
+    assert imports.repository.checkpoint(stale, progress)
+    stale["progress"] = progress
+    assert imports.repository.publish(
+        stale, Snapshot("Chart", progress["entries"])
+    )
     assert not imports.get(owner, item_id)["entries"][0].get("reviewed")
     token = browser(service, "alice")
     assert client.post(path, data=data | {"csrf": token}).status_code == 403

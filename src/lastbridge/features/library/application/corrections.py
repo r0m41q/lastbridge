@@ -33,7 +33,7 @@ class RecordingCorrections:
             if song_id
             else None
         )
-        if original:
+        if original and kind != "love":
             document = original["document"]
             source = {
                 "title": document["title"],
@@ -52,6 +52,7 @@ class RecordingCorrections:
         signature = {
             "source": source,
             "target": context.get("target"),
+            "review_skipped": context.get("review_skipped", 0),
             "song_id": song_id,
             "recording_id": current["recording_id"] if current else None,
         }
@@ -72,11 +73,27 @@ class RecordingCorrections:
             review = None
         return context | {"review": review}
 
+    def queue(self, user_id):
+        return self.repository.love_review_queue(user_id)
+
+    def skip(self, user_id, key, skipped=True):
+        return self.repository.skip_love_review(user_id, key, skipped)
+
+    def undo_token(self, user_id):
+        return self.repository.review_undo_token(user_id)
+
+    async def undo(self, user_id, kind, key, token):
+        self.repository.undo_review(user_id, kind, key, token)
+        self.library.notify()
+        await self.library.reconcile()
+
     async def search(self, user_id, kind, key, query=""):
         query = query.strip()
         if len(query) > 256:
             raise CatalogError(10, "Search is too long")
         context = self.context(user_id, kind, key)
+        if context.get("review_skipped"):
+            raise CatalogError(10, "Restore this track before searching")
         if self.slots.locked():
             raise CatalogError(0, "Recording search busy; retry shortly")
         try:

@@ -18,7 +18,13 @@ def test_preview_returns_queue_report_without_provider_request(
     item_id = response.url.path.rsplit("/", 1)[1]
     assert response.status_code == 200 and "Queued" in response.text
     assert calls == [] and "Add shared chart" not in response.text
-    assert 'http-equiv="refresh"' in response.text
+    assert 'http-equiv="refresh"' not in response.text
+    assert 'src="/assets/recording-review.js"' in response.text
+    report_url = f"/playlist-imports/{item_id}"
+    model = client.get(
+        report_url, headers={"Accept": "application/json"}
+    ).json()
+    assert model["running"] and "Queued" in model["header"]
     assert (
         client.post(
             f"/playlist-imports/{item_id}/confirm", data={"csrf": token}
@@ -48,6 +54,11 @@ def test_preview_returns_queue_report_without_provider_request(
         report.text
     )
     assert "Add shared chart" in report.text
+    model = client.get(
+        report_url, headers={"Accept": "application/json"}
+    ).json()
+    assert not model["running"] and "Add shared chart" in model["header"]
+    assert len(model["entries"]) == 4
     assert 'http-equiv="refresh"' not in report.text
     assert "Chart &lt;&amp;&gt;" in client.get("/admin/import-queue").text
     assert not imports.get(user(service), item_id)["ready"]

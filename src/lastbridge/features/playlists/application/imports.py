@@ -85,12 +85,20 @@ class Imports:
         self.cancel_active(item_id)
         self.wake.set()
 
-    def decide(self, user, item_id, source_key, song_id, acknowledge=False):
+    def decide(
+        self,
+        user,
+        item_id,
+        source_key,
+        song_id,
+        acknowledge=False,
+        action="choose",
+        undo="",
+    ):
         self.writable(user, item_id)
-        self.repository.decide(user, item_id, source_key, song_id, acknowledge)
-        if not song_id:
-            self.cancel_active(item_id)
-            self.wake.set()
+        return self.repository.decide(
+            user, item_id, source_key, song_id, acknowledge, action, undo
+        )
 
     def cancel_active(self, item_id):
         if (
