@@ -345,7 +345,7 @@
 @layer components {
   [hidden] { display: none !important; }
   .recording-review { padding: 0; overflow: clip; }
-  .review-toolbar { padding: var(--panel-padding); border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--surface); z-index: 2; }
+  .review-toolbar { padding: var(--panel-padding); border-bottom: 1px solid var(--line); background: var(--surface); }
   .review-summary { color: var(--muted); margin-block: 8px 14px; font-variant-numeric: tabular-nums; }
   .review-tabs, .review-filters, .review-pagination, .review-entry-actions, .review-detail-heading { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .review-filters { margin-top: 14px; }
@@ -383,7 +383,8 @@
   .review-confirmation { border-left: 2px solid var(--violet); padding-left: 12px; margin-top: 15px; }
   .review-confirmation button { margin: 6px 8px 0 0; }
   .review-feedback:empty { display: none; }
-  .review-feedback { position: sticky; top: 0; z-index: 3; display: flex; gap: 15px; align-items: center; padding: 12px var(--panel-padding); background: var(--raised); border-bottom: 1px solid var(--line); }
+  .review-feedback { display: flex; flex-wrap: wrap; gap: 15px; align-items: center; margin-top: 18px; padding: 12px 16px; background: var(--raised); border: 1px solid var(--line); border-radius: 9px; }
+  .review-feedback > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .review-error { color: #f6bbb0; }
   .review-empty { padding: var(--panel-padding); color: var(--muted); }
 }
@@ -395,7 +396,6 @@
     .review-rows { max-height: 65dvh; }
   }
   @media (max-width: 640px) {
-    .review-toolbar { position: static; }
     .review-tabs { gap: 6px; }
     .review-tabs button { flex: 1; white-space: nowrap; font-size: 11px; }
     .review-row { padding-inline: 13px; }
@@ -413,7 +413,7 @@
 }
 @layer responsive {
   @media (max-width: 850px) {
-    .review-detail > .review-feedback:not(:empty) { display: flex; margin: calc(-1 * var(--panel-padding)) calc(-1 * var(--panel-padding)) 18px; }
+    .review-detail > .review-feedback:not(:empty) { display: flex; margin: 0 0 18px; }
     .review-workspace:has(.review-sheet:not([open]))::after { display: none; }
   }
 }
