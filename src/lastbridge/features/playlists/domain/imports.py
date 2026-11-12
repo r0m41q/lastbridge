@@ -16,6 +16,20 @@ class Snapshot:
     entries: list[dict]
 
 
+def reviewed_entries(entries, decisions):
+    return [
+        entry
+        | {
+            "song_id": decision["song_id"],
+            "reason": None,
+            "reviewed": True,
+        }
+        if (decision := decisions.get(entry.get("source_key")))
+        else entry
+        for entry in entries
+    ]
+
+
 def playlist_source(value):
     try:
         if not isinstance(value, str) or len(value) > 2048:

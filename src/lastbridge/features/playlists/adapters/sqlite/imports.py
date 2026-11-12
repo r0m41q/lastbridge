@@ -4,7 +4,8 @@ import json
 import time
 from uuid import uuid4
 
-from lastbridge.features.playlists.domain.imports import DAY
+from lastbridge.features.playlists.domain.imports import DAY, reviewed_entries
+from lastbridge.features.playlists.domain.matching import identity
 from lastbridge.shared.errors import CatalogError
 
 
@@ -168,7 +169,8 @@ class ImportRepository:
             ):
                 raise CatalogError(70, "Preview expired")
             progress = json.loads(row["progress"])
-            entries = progress.get("entries", []) + json.loads(row["entries"])
+            published = json.loads(row["entries"])
+            entries = progress.get("entries", []) + published
             entries = [e for e in entries if e.get("source_key") == source_key]
             if not entries:
                 raise CatalogError(10, "Entry unavailable")
@@ -185,6 +187,33 @@ class ImportRepository:
                 if candidates[0]["mismatch"] and not acknowledge:
                     raise CatalogError(10, "Acknowledge recording mismatch")
                 decisions[source_key] = candidates[0]
+                published = reviewed_entries(published, decisions)
+                if "entries" in progress:
+                    progress["entries"] = reviewed_entries(
+                        progress["entries"], decisions
+                    )
+                counted = progress.get("entries")
+                if counted is None and row["phase"] == "complete":
+                    counted = published
+                matched = (
+                    sum(bool(e.get("song_id")) for e in counted)
+                    if counted is not None
+                    else row["matched"]
+                )
+                connection.execute(
+                    "UPDATE playlist_imports SET entries=?,progress=?,"
+                    "matched=?,updated=? WHERE id=?",
+                    (
+                        json.dumps(published),
+                        json.dumps(progress),
+                        matched,
+                        time.time()
+                        if published != json.loads(row["entries"])
+                        else row["updated"],
+                        item_id,
+                    ),
+                )
+                return
             else:
                 decisions.pop(source_key, None)
             progress = self.fresh(progress)
@@ -258,10 +287,37 @@ class ImportRepository:
             )
         return job | {"token": token, "state": "running"}
 
+    def reviewed_progress(self, connection, job, progress):
+        # A user can select a recording while an older batch is in flight.
+        # Merge the current decisions inside the same fenced transaction.
+        row = connection.execute(
+            "SELECT progress FROM playlist_imports WHERE id=? AND token=? "
+            "AND state='running'",
+            (job["id"], job["token"]),
+        ).fetchone()
+        if row is None:
+            return None
+        keys = {
+            identity(track)
+            for track in progress.get("tracks", [])
+            if isinstance(track, dict)
+        } | {entry.get("source_key") for entry in progress["entries"]}
+        saved = json.loads(row["progress"]).get("decisions", {})
+        decisions = {
+            key: decision for key, decision in saved.items() if key in keys
+        }
+        return progress | {
+            "decisions": decisions,
+            "entries": reviewed_entries(progress["entries"], decisions),
+        }
+
     def checkpoint(self, job, progress):
-        entries = progress["entries"]
-        matched = sum(bool(entry.get("song_id")) for entry in entries)
         with self.database.transaction() as connection:
+            progress = self.reviewed_progress(connection, job, progress)
+            if progress is None:
+                return False
+            entries = progress["entries"]
+            matched = sum(bool(entry.get("song_id")) for entry in entries)
             changed = connection.execute(
                 "UPDATE playlist_imports SET progress=?,phase='resolve',"
                 "processed=?,total=?,matched=?,attempts=0,error=NULL,"
@@ -283,6 +339,14 @@ class ImportRepository:
     def publish(self, job, snapshot):
         now = time.time()
         with self.database.transaction() as connection:
+            progress = self.reviewed_progress(
+                connection,
+                job,
+                job["progress"] | {"entries": snapshot.entries},
+            )
+            if progress is None:
+                return False
+            entries = progress["entries"]
             changed = connection.execute(
                 "UPDATE playlist_imports SET title=?,entries=?,updated=?,"
                 "next_attempt=?,token=NULL,error=NULL,state='complete',"
@@ -291,13 +355,13 @@ class ImportRepository:
                 "WHERE id=? AND token=? AND state='running'",
                 (
                     snapshot.title,
-                    json.dumps(snapshot.entries),
+                    json.dumps(entries),
                     now,
                     now + DAY,
-                    len(snapshot.entries),
-                    len(snapshot.entries),
-                    sum(bool(e.get("song_id")) for e in snapshot.entries),
-                    json.dumps(self.fresh(job["progress"])),
+                    len(entries),
+                    len(entries),
+                    sum(bool(e.get("song_id")) for e in entries),
+                    json.dumps(self.fresh(progress)),
                     job["id"],
                     job["token"],
                 ),
