@@ -48,3 +48,32 @@ def test_listener_cannot_manage_stations_in_browser(service):
         response = client.post(path, data=STATION | {"csrf": token})
         assert response.status_code == 403
     assert app.state.services.stations.list() == []
+
+
+def test_station_artwork_browser_edit_and_clear(service):
+    client, app, _ = service
+    login(client)
+    page = client.get("/admin")
+    token = csrf(page)
+    artwork = "https://radio.example/logo.png?size=500&v=2"
+    response = client.post(
+        "/admin/stations",
+        data=STATION
+        | {
+            "csrf": token,
+            "artworkUrl": artwork,
+        },
+    )
+    assert response.status_code == 200
+    assert "Artwork URL (optional)" in response.text
+    assert "https://radio.example/logo.png?size=500&amp;v=2" in response.text
+    stations = app.state.services.stations
+    station = stations.list()[0]
+    assert station["artworkUrl"] == artwork
+    response = client.post(
+        f"/admin/stations/{station['id']}/save",
+        data=STATION | {"csrf": token, "artworkUrl": ""},
+    )
+    assert response.status_code == 200
+    assert "artworkUrl" not in stations.list()[0]
+    assert "coverArt" not in stations.list()[0]

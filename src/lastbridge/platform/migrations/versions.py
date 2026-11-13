@@ -58,7 +58,7 @@ SCHEMA = (
 def migrate(database, credentials):
     with database.transaction() as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 22:
+        if version > 23:
             raise RuntimeError("Database is newer than this application")
         if version == 0:
             for statement in SCHEMA:
@@ -307,6 +307,19 @@ def migrate(database, credentials):
                 "document TEXT NOT NULL, expires REAL NOT NULL)"
             )
             connection.execute("PRAGMA user_version=22")
+        if version < 23:
+            columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(internet_radio_stations)"
+                )
+            }
+            if "artwork_url" not in columns:
+                connection.execute(
+                    "ALTER TABLE internet_radio_stations ADD COLUMN "
+                    "artwork_url TEXT NOT NULL DEFAULT ''"
+                )
+            connection.execute("PRAGMA user_version=23")
         check = connection.execute(
             "SELECT value FROM credential_check"
         ).fetchone()[0]

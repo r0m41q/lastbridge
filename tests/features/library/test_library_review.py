@@ -239,7 +239,7 @@ def test_review_skip_survives_restart_and_v21_migration(correction_service):
     ]
     assert reopened.stars(owner) == before
     with services.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
         assert not connection.execute("PRAGMA foreign_key_check").fetchall()
 
 

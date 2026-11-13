@@ -8,7 +8,10 @@ async def stations(request, method, values, user):
     if method == "getInternetRadioStations":
         return {
             "internetRadioStations": {
-                "internetRadioStation": station_list.list()
+                "internetRadioStation": [
+                    {k: v for k, v in station.items() if k != "artworkUrl"}
+                    for station in station_list.list()
+                ]
             }
         }
     if request.method == "HEAD":

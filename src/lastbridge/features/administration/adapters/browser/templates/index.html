@@ -128,6 +128,11 @@
       <label>Homepage URL (optional)
         <input type="url" name="homepageUrl" maxlength="2048">
       </label>
+      <label>Artwork URL (optional)
+        <input type="url" name="artworkUrl" maxlength="2048"
+               placeholder="https://radio.example/logo.png">
+      </label>
+      <p class="muted">Use a direct image link accessible to your music app.</p>
       <button type="submit">Add station</button>
     </form>
     {% for station in stations %}
@@ -147,6 +152,14 @@
             <input type="url" name="homepageUrl" maxlength="2048"
                    value="{{ station.get('homePageUrl', '') }}">
           </label>
+          <label>Artwork URL (optional)
+            <input type="url" name="artworkUrl" maxlength="2048"
+                   value="{{ station.get('artworkUrl', '') }}">
+          </label>
+          {% if station.get('artworkUrl') %}
+            <p><a href="{{ station.artworkUrl }}" target="_blank"
+                  rel="noopener noreferrer">View artwork</a></p>
+          {% endif %}
           <button type="submit">Save station</button>
         </form>
         {{ action('/admin/stations/' ~ station.id ~ '/delete',

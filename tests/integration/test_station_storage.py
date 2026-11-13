@@ -27,7 +27,7 @@ def test_version_sixteen_upgrade_and_station_chart_restart(imported_service):
         connection.execute("PRAGMA user_version=16")
     migrated = make_accounts(database.path.parent)
     with migrated.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == (
             "ok"
         )
@@ -50,3 +50,32 @@ def test_version_sixteen_upgrade_and_station_chart_restart(imported_service):
     )
     assert imports.get(owner, chart)["title"] == "Persistent chart"
     assert imports.get(owner, private)["title"] == before["title"]
+
+
+def test_station_artwork_upgrade_and_restart(tmp_path):
+    accounts = make_accounts(tmp_path)
+    accounts.create_user("admin", "station-test-password", bootstrap=True)
+    database = accounts.repository.database
+    stations = Stations(StationRepository(database))
+    owner = accounts.user("admin")
+    stations.save(owner, STATION)
+    before = stations.list()
+    with database.transaction() as connection:
+        connection.execute(
+            "ALTER TABLE internet_radio_stations DROP COLUMN artwork_url"
+        )
+        connection.execute("PRAGMA user_version=22")
+    accounts = make_accounts(tmp_path)
+    stations = Stations(StationRepository(accounts.repository.database))
+    assert stations.list() == before
+    stations.save(
+        owner,
+        STATION | {"artworkUrl": "https://radio.example/logo.png"},
+        before[0]["id"],
+    )
+    expected = stations.list()
+    restarted = make_accounts(tmp_path)
+    assert (
+        Stations(StationRepository(restarted.repository.database)).list()
+        == expected
+    )

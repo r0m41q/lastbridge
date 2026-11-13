@@ -1,4 +1,4 @@
-from fastapi.responses import Response
+from fastapi.responses import RedirectResponse, Response
 
 from lastbridge.shared.errors import CatalogError
 from lastbridge.transport.http.context import services
@@ -104,8 +104,13 @@ async def cover(request, method, values, user):
     catalog = services(request).catalog
     if "size" in values:
         integer(values, "size", 0, 4096)
+    item_id = required(values, "id")
+    if item_id.startswith("station-"):
+        url = services(request).stations.artwork_url(item_id)
+        # POST clients must not forward their authentication form to the host.
+        return RedirectResponse(url, status_code=303)
     data, media_type = await catalog.artwork(
-        services(request).http_client, required(values, "id")
+        services(request).http_client, item_id
     )
     # Google artwork is requested at 1080px; the client's size is advisory.
     return Response(data, media_type=media_type)

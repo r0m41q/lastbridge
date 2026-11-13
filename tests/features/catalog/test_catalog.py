@@ -385,7 +385,7 @@ def test_migration_from_v1_preserves_accounts(tmp_path):
     migrated = make_accounts(tmp_path)
     assert migrated.user("admin")["admin"] == 1
     with migrated.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
         assert (
             connection.execute("SELECT count(*) FROM catalog").fetchone()[0]
             == 0

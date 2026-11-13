@@ -179,3 +179,94 @@ def test_station_authentication_without_lastfm(catalog_service):
     )
     assert body(response)["status"] == "ok"
     assert app.state.services.stations.list()
+
+
+@pytest.mark.parametrize("http_method", ["GET", "POST"])
+def test_station_artwork_redirect_revision_and_removal(
+    catalog_service, http_method
+):
+    service = catalog_service
+    artwork = "https://radio.example/logo.png?size=500&version=1"
+    response = station_call(
+        service,
+        "createInternetRadioStation",
+        **(STATION | {"artworkUrl": artwork}),
+    )
+    assert body(response)["status"] == "ok"
+    station = body(get(service, "getInternetRadioStations"))[
+        "internetRadioStations"
+    ]["internetRadioStation"][0]
+    cover = station["coverArt"]
+    assert "artworkUrl" not in station
+    xml = fromstring(get(service, "getInternetRadioStations", f="xml").content)
+    assert (
+        xml.find("{*}internetRadioStations/{*}internetRadioStation").get(
+            "coverArt"
+        )
+        == cover
+    )
+    arguments = {
+        "apiKey": service[3]["unlinked"],
+        "v": "1.16.1",
+        "c": "test",
+        "f": "json",
+        "id": cover,
+    }
+    result = service[0].request(
+        http_method,
+        "/rest/getCoverArt",
+        follow_redirects=False,
+        **{"data" if http_method == "POST" else "params": arguments},
+    )
+    assert result.status_code == 303
+    assert result.headers["location"] == artwork
+    assert "apiKey" not in result.headers["location"]
+    # Client station edits that do not know artworkUrl preserve it.
+    station_call(
+        service, "updateInternetRadioStation", id=station["id"], **STATION
+    )
+    assert service[1].state.services.stations.list()[0]["coverArt"] == cover
+    station_call(
+        service,
+        "updateInternetRadioStation",
+        id=station["id"],
+        **(STATION | {"artworkUrl": "https://radio.example/new.png"}),
+    )
+    changed = service[1].state.services.stations.list()[0]["coverArt"]
+    assert changed != cover
+    assert (
+        body(station_call(service, "getCoverArt", id=cover))["error"]["code"]
+        == 70
+    )
+    station_call(
+        service,
+        "updateInternetRadioStation",
+        id=station["id"],
+        **(STATION | {"artworkUrl": ""}),
+    )
+    assert "coverArt" not in service[1].state.services.stations.list()[0]
+    assert (
+        body(station_call(service, "getCoverArt", id=changed))["error"]["code"]
+        == 70
+    )
+    assert not service[2].calls
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "javascript:alert(1)",
+        "file:///etc/passwd",
+        "https://user:password@radio.example/logo.png",
+        "https://radio.example/logo.png#fragment",
+        "https://radio.example/\nlogo.png",
+    ],
+)
+def test_invalid_station_artwork_is_rejected(catalog_service, url):
+    result = station_call(
+        catalog_service,
+        "createInternetRadioStation",
+        **(STATION | {"artworkUrl": url}),
+    )
+    assert body(result)["error"]["code"] == 10
+    assert not catalog_service[1].state.services.stations.list()

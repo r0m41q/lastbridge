@@ -60,7 +60,15 @@ async def endpoint(request: Request, method: str):
     if method == "getOpenSubsonicExtensions":
         return reply(values, payload={"openSubsonicExtensions": EXTENSIONS})
     user = authenticate(
-        request, values, require_link=method not in RADIO_STATION_METHODS
+        request,
+        values,
+        require_link=not (
+            method in RADIO_STATION_METHODS
+            or (
+                method == "getCoverArt"
+                and values.get("id", "").startswith("station-")
+            )
+        ),
     )
     if isinstance(user, Response):
         return user
