@@ -597,6 +597,16 @@ class ImportRepository:
             if not changed:
                 raise CatalogError(70, "Shared chart not found")
 
+    def rename_private(self, user_id, item_id, name):
+        with self.database.transaction() as connection:
+            changed = connection.execute(
+                "UPDATE playlist_imports SET custom_title=?,updated=? "
+                "WHERE id=? AND owner_id=? AND shared=0 AND ready=1",
+                (name, time.time(), item_id, user_id),
+            ).rowcount
+            if not changed:
+                raise CatalogError(70, "Private import not found")
+
     def schedule_shared(self, item_id, days):
         with self.database.transaction() as connection:
             changed = connection.execute(

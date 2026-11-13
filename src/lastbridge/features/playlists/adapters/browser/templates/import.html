@@ -1,9 +1,20 @@
 {% extends 'base.html' %}
 {% from 'components/recording_review.html' import recording_review %}
+{% from 'components/forms.html' import csrf %}
 {% block head %}<script src="/assets/recording-review.js" defer></script>{% endblock %}
 {% block content %}
   <div class="dashboard">
     <div data-import-header>{% include 'playlists/import_header.html' %}</div>
+    {% if item.ready and (not item.shared or user.admin) %}
+      <section class="panel">
+        <form method="post" action="/playlist-imports/{{ item.id }}/rename">
+          {{ csrf(user.csrf) }}
+          <label>Playlist name <input name="name" maxlength="200" value="{{ item.custom_title or '' }}" placeholder="{{ item.title }}"></label>
+          <p>Leave blank to use the source name. Your custom name is kept across refreshes.</p>
+          <button type="submit">Save name</button>
+        </form>
+      </section>
+    {% endif %}
     {{ recording_review(review, user) }}
     <a href="/playlists">Back to playlists</a>
   </div>

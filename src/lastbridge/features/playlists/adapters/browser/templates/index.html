@@ -64,6 +64,11 @@
           <div class="playlist-info">
             <h3>{{ item.name }}</h3>
             <p>{{ item.songCount }} tracks · {{ 'Kept downloaded.' if kept else 'Metadata only.' }}</p>
+            <form method="post" action="/playlists/{{ item.id }}/rename">
+              {{ csrf(user.csrf) }}
+              <label>Playlist name <input name="name" required maxlength="200" value="{{ item.name }}"></label>
+              <button type="submit">Save name</button>
+            </form>
           </div>
           <div class="actions">
             {{ action('/playlists/' ~ item.id ~ ('/release' if kept else '/keep'), user.csrf, 'Release downloads' if kept else 'Keep downloaded') }}

@@ -55,7 +55,7 @@ async def new_playlist(request: Request, action: str):
 
 @router.post("/playlists/{item_id}/{action}")
 async def playlist_action(request: Request, item_id: str, action: str):
-    user, _ = await protected_form(request)
+    user, values = await protected_form(request)
     require_playlist_access(user)
     playlists = services(request).playlists
     try:
@@ -63,6 +63,8 @@ async def playlist_action(request: Request, item_id: str, action: str):
             await playlists.keep(user, item_id, action == "keep")
         elif action == "delete":
             await playlists.delete(user, item_id)
+        elif action == "rename":
+            await playlists.update(user, item_id, {"name": values.get("name")})
         else:
             raise HTTPException(404, "Action not found")
     except CatalogError as error:

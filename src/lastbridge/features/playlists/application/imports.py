@@ -132,6 +132,16 @@ class Imports:
         name = label(name, "name", 200, empty=True).strip()
         self.repository.rename_shared(item_id, name or None)
 
+    def rename(self, user, item_id, name):
+        row = self.writable(user, item_id)
+        if not row["ready"]:
+            raise CatalogError(10, "Confirm the preview first")
+        if row["shared"]:
+            self.rename_shared(user, item_id, name)
+            return
+        name = label(name, "name", 200, empty=True).strip()
+        self.repository.rename_private(user["id"], item_id, name or None)
+
     def schedule_shared(self, user, item_id, days):
         if not user["admin"]:
             raise CatalogError(50, "Administrator access required")
