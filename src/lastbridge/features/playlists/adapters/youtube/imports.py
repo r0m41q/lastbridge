@@ -33,6 +33,9 @@ class PlaylistProvider:
             data = await self.fetch(
                 {"operation": "playlist", "source": source}
             )
+        return self.prepare_data(data, previous)
+
+    def prepare_data(self, data, previous=None):
         tracks, title = data.get("tracks"), data.get("title")
         count = data.get("trackCount")
         if (
@@ -65,6 +68,7 @@ class PlaylistProvider:
             "thumbnails",
             "isAvailable",
             "isExplicit",
+            "source_kind",
         }
         result = {
             "title": title,
@@ -151,12 +155,10 @@ class PlaylistProvider:
                 else []
             )
             entry["artist"] = ", ".join(names)[:1024]
-            source_id = row.get("videoId")
             album = row.get("album")
             song = None
             if (
-                isinstance(source_id, str)
-                and re.fullmatch(r"[A-Za-z0-9_-]{11}", source_id)
+                self.valid_source(row)
                 and entry["title"] != "Unavailable track"
                 and names
                 and row.get("isAvailable") is not False
@@ -208,6 +210,13 @@ class PlaylistProvider:
                     safe["duration_seconds"] = duration
                     song = self.song(safe)
         return entry, song, key
+
+    @staticmethod
+    def valid_source(row):
+        source_id = row.get("videoId")
+        return isinstance(source_id, str) and re.fullmatch(
+            r"[A-Za-z0-9_-]{11}", source_id
+        )
 
     async def batch(self, progress):
         if (

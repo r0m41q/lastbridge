@@ -13,6 +13,7 @@ from lastbridge.features.playlists.application.import_ports import (
 )
 from lastbridge.features.playlists.domain.imports import (
     Snapshot,
+    lastfm_source,
     playlist_source,
 )
 from lastbridge.features.playlists.domain.rules import label
@@ -32,9 +33,11 @@ class Imports:
         provider: SnapshotProvider,
         catalog: ImportCatalog,
         library: ImportLibrary,
+        lastfm_provider: SnapshotProvider | None = None,
     ):
         self.repository, self.provider = repository, provider
         self.catalog, self.library = catalog, library
+        self.lastfm_provider = lastfm_provider
         self.task = None
         self.slot = asyncio.Lock()
         self.wake = asyncio.Event()
@@ -55,7 +58,9 @@ class Imports:
         result = {
             "id": row["id"],
             "name": row["title"],
-            "comment": "YouTube import",
+            "comment": "Last.fm import"
+            if lastfm_source(row["source"])
+            else "YouTube import",
             "owner": "Lastbridge" if row["shared"] else user["username"],
             "public": bool(row["shared"]),
             "readonly": True,
@@ -73,7 +78,15 @@ class Imports:
     async def preview(self, user, url, shared=False):
         if shared and not user["admin"]:
             raise CatalogError(50, "Administrator access required")
-        item_id = self.repository.enqueue(user, playlist_source(url), shared)
+        source = playlist_source(
+            url,
+            user.get("lastfm_name")
+            if user.get("link_status") in ("linked", "relink")
+            else None,
+        )
+        if lastfm_source(source) and shared:
+            raise CatalogError(10, "Last.fm playlist imports must be private")
+        item_id = self.repository.enqueue(user, source, shared)
         self.wake.set()
         return item_id
 
@@ -165,13 +178,19 @@ class Imports:
             job["total"],
         )
         try:
+            provider = self.provider
+            if lastfm_source(job["source"]):
+                self.repository.verify_lastfm_owner(job)
+                provider = self.lastfm_provider
+                if provider is None:
+                    raise CatalogError(0, "Last.fm imports unavailable")
             if phase == "fetch":
-                progress = await self.provider.prepare(job["source"], progress)
+                progress = await provider.prepare(job["source"], progress)
                 if not self.repository.checkpoint(job, progress):
                     return False
                 phase = "resolve"
             while len(progress["entries"]) < len(progress["tracks"]):
-                progress = await self.provider.batch(progress)
+                progress = await provider.batch(progress)
                 if not self.repository.checkpoint(job, progress):
                     return False
                 logger.debug(

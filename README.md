@@ -5,7 +5,7 @@ A self-hosted OpenSubsonic server that combines Last.fm recommendations and YouT
 - Search and play artists, albums, and songs.
 - Personal mixes based on user's Last.fm listening.
 - Sync song likes and scrobbles with Last.fm.
-- Import YouTube playlists and share charts that refresh daily.
+- Import YouTube and your Last.fm playlists, with daily refreshes for Last.fm and shared charts.
 - Keep favorites and playlists downloaded for use with Jellyfin.
 - Synced lyrics.
 - Internet radio.
@@ -43,7 +43,7 @@ Administrators can add other users from **Administration**.
 
 Like a song to save it and sync the like to Last.fm. Choose **Keep downloaded** on a playlist to save its audio on the server too. Normal playlists don't retain audio. Use **Choose recording** in Saved library to replace a wrong or unavailable track.
 
-Use **Playlists** in the web UI to import a public YouTube playlist. Review unmatched tracks before adding it. Administrators can share charts with everyone and manage import jobs and internet radio stations from **Administration**.
+Use **Playlists** in the web UI to import a public YouTube playlist or one of your Last.fm playlists by URL or numeric ID. Last.fm imports use your linked account, stay private and refresh daily. Review unmatched tracks before adding it. Administrators can share YouTube charts with everyone and manage import jobs and internet radio stations from **Administration**.
 
 Audio providers, format, and cache limits are also in **Administration**. The first play of an uncached song may take a few seconds to start.
 

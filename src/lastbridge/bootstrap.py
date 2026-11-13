@@ -104,6 +104,9 @@ from lastbridge.features.playback.application.ports import (
 from lastbridge.features.playback.application.queue import PlayQueue
 from lastbridge.features.playback.application.service import AudioCache
 from lastbridge.features.playback.domain.models import MediaDescriptor
+from lastbridge.features.playlists.adapters.lastfm.imports import (
+    LastfmPlaylistProvider,
+)
 from lastbridge.features.playlists.adapters.sqlite.imports import (
     ImportRepository,
 )
@@ -407,6 +410,9 @@ async def bootstrap(
             PlaylistProvider(catalog.provider.fetch, catalog.song),
             catalog,
             library,
+            LastfmPlaylistProvider(
+                client, catalog.provider.fetch, catalog.song
+            ),
         )
         resources.push_async_callback(imports.close)
         playlists = Playlists(

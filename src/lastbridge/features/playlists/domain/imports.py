@@ -42,7 +42,36 @@ def reviewed_entries(entries, decisions):
     ]
 
 
-def playlist_source(value):
+def lastfm_source(source):
+    return source.startswith("lastfm:")
+
+
+def playlist_source(value, lastfm_name=None):
+    if isinstance(value, str) and len(value) <= 2048:
+        value = value.strip()
+        playlist_id = value if re.fullmatch(r"[0-9]{1,20}", value) else None
+        try:
+            url = urlsplit(value)
+            if (
+                url.scheme == "https"
+                and url.hostname in {"www.last.fm", "last.fm"}
+                and url.port in (None, 443)
+                and url.username is None
+                and url.password is None
+            ):
+                match = re.fullmatch(
+                    r"/(?:[a-z]{2}/)?user/[^/]+/playlists/([0-9]{1,20})/?",
+                    url.path,
+                )
+                playlist_id = match[1] if match else None
+        except ValueError:
+            pass
+        if playlist_id is not None:
+            if not isinstance(lastfm_name, str) or not re.fullmatch(
+                r"[A-Za-z0-9_-]{1,64}", lastfm_name
+            ):
+                raise CatalogError(10, "Link Last.fm before importing")
+            return f"lastfm:{lastfm_name}:{int(playlist_id)}"
     try:
         if not isinstance(value, str) or len(value) > 2048:
             raise ValueError
@@ -66,5 +95,5 @@ def playlist_source(value):
         return source
     except ValueError, AttributeError, TypeError:
         raise CatalogError(
-            10, "Enter a public HTTPS YouTube playlist URL"
+            10, "Enter a YouTube or Last.fm playlist URL, or Last.fm ID"
         ) from None

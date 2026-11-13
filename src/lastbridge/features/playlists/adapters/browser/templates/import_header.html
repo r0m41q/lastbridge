@@ -3,7 +3,13 @@
 <section class="panel">
       <h2>{{ item.title }}</h2>
       <p data-playlist-count>{{ playable }} playable / {{ entry_count }} entries · {{ 'Shared' if item.shared else 'Private' }}</p>
-      <p><a href="https://music.youtube.com/playlist?list={{ item.source }}" rel="noreferrer">YouTube source</a></p>
+      {% set lastfm = item.source.startswith('lastfm:') %}
+      {% if lastfm %}
+        {% set source = item.source.split(':') %}
+        <p><a href="https://www.last.fm/user/{{ source[1] }}/playlists/{{ source[2] }}" rel="noreferrer">Last.fm source</a></p>
+      {% else %}
+        <p><a href="https://music.youtube.com/playlist?list={{ item.source }}" rel="noreferrer">YouTube source</a></p>
+      {% endif %}
       {{ progress(item) }}
       {% if not item.shared or user.admin %}
         {{ controls(item, user, '/playlist-imports') }}
@@ -21,6 +27,6 @@
         {% endif %}
       </div>
       {% if not item.ready %}<p>Confirm the completed preview to publish it. The completed preview expires after one hour. Importing does not download audio.</p>{% endif %}
-      {% if item.ready %}<p>Last updated: {{ updated }}{% if item.shared and item.state == 'complete' %} · Next refresh: {{ next_refresh }}{% endif %}</p><p>{{ 'Refreshes every 24 hours after a successful refresh.' if item.shared else 'Use Refresh now to update this snapshot.' }} Paused and cancelled jobs wait for your next action.</p>{% endif %}
+      {% if item.ready %}<p>Last updated: {{ updated }}{% if (item.shared or lastfm) and item.state == 'complete' %} · Next refresh: {{ next_refresh }}{% endif %}</p><p>{{ 'Refreshes every ' ~ item.refresh_days ~ ' day(s) after a successful refresh.' if item.shared or lastfm else 'Use Refresh now to update this snapshot.' }} Paused and cancelled jobs wait for your next action.</p>{% endif %}
       {% if item.state in ('queued', 'running') %}<p>Progress updates every five seconds. You can leave while the job runs.</p>{% endif %}
     </section>

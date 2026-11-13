@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from lastbridge.features.playlists.domain.imports import (
     DAY,
+    lastfm_source,
     normalized_entries,
     reviewed_entries,
 )
@@ -111,13 +112,32 @@ class ImportRepository:
                     user["id"],
                     source,
                     int(shared),
-                    "YouTube playlist",
+                    "Last.fm playlist " + source.rsplit(":", 1)[1]
+                    if lastfm_source(source)
+                    else "YouTube playlist",
                     now,
                     now,
                     now,
                 ),
             )
         return item_id
+
+    def verify_lastfm_owner(self, job):
+        with self.database.connection() as connection:
+            self.check_lastfm_owner(connection, job)
+
+    @staticmethod
+    def check_lastfm_owner(connection, job):
+        owner = connection.execute(
+            "SELECT lastfm_name,link_status FROM users WHERE id=?",
+            (job["owner_id"],),
+        ).fetchone()
+        if (
+            owner is None
+            or owner["link_status"] not in ("linked", "relink")
+            or owner["lastfm_name"] != job["source"].split(":")[1]
+        ):
+            raise CatalogError(50, "Linked Last.fm account changed; reimport")
 
     def confirm(self, user, item_id):
         now = time.time()
@@ -132,6 +152,8 @@ class ImportRepository:
                 raise CatalogError(70, "Preview is unfinished or expired")
             if row["shared"] and not user["admin"]:
                 raise CatalogError(50, "Administrator access required")
+            if lastfm_source(row["source"]):
+                self.check_lastfm_owner(connection, row)
             existing = connection.execute(
                 "SELECT id FROM playlist_imports WHERE source=? AND "
                 "shared=? AND ready=1 AND (shared=1 OR owner_id=?)",
@@ -306,7 +328,8 @@ class ImportRepository:
                 "SELECT * FROM playlist_imports WHERE "
                 "((state IN ('queued','running') AND next_attempt<=?) OR "
                 "(state='complete' AND ready=1 AND "
-                "((shared=1 AND next_attempt<=?) OR id=?))) "
+                "(((shared=1 OR source LIKE 'lastfm:%') "
+                "AND next_attempt<=?) OR id=?))) "
                 "AND (? IS NULL OR id=?) ORDER BY "
                 "CASE state WHEN 'queued' THEN 0 ELSE 1 END,"
                 "queued_at,created,id LIMIT 1",
@@ -354,6 +377,8 @@ class ImportRepository:
         ).fetchone()
         if row is None:
             return None
+        if lastfm_source(job["source"]):
+            self.check_lastfm_owner(connection, job)
         keys = {
             identity(track)
             for track in progress.get("tracks", [])
