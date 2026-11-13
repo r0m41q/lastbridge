@@ -90,6 +90,33 @@ def test_stream_download_and_saved_job_use_selected_audio(correction_service):
     assert dashboard["retained"][user_id(service)] == {ALTERNATE}
 
 
+def test_library_indexes_use_private_corrected_artist_and_album(
+    correction_service,
+):
+    service, original, state = correction_service
+    state["rows"][0]["artists"] = [{"name": "Other", "id": "UC_other"}]
+    get(service, "star", id=original["id"])
+    get(service, "star", id=original["id"], apiKey=service[3]["alice"])
+    choose_recording(correction_service, acknowledge=True)
+    services = service[1].state.services
+    corrected = services.library.recording(user_id(service), original["id"])[
+        "document"
+    ]
+    services.catalog.provider.fail = True
+    for name, expected in (("admin", corrected), ("alice", original)):
+        params = {"apiKey": service[3][name]}
+        groups = body(get(service, "getArtists", **params))["artists"]["index"]
+        assert [a["id"] for g in groups for a in g["artist"]] == [
+            expected["artistId"]
+        ]
+        albums = body(
+            get(service, "getAlbumList2", type="alphabeticalByName", **params)
+        )["albumList2"]["album"]
+        assert [a["id"] for a in albums] == [expected["albumId"]]
+        assert albums[0]["songCount"] == 1
+    assert not services.audio.provider.calls
+
+
 def test_failed_replacement_keeps_favorite_and_retries_selected_source(
     correction_service,
 ):

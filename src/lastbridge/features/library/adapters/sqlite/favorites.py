@@ -181,20 +181,13 @@ class FavoriteRepository:
 
     def collection_ids(self, user_id, starred_only):
         with self.database.connection() as connection:
-            rows = connection.execute(
-                "SELECT DISTINCT c.id FROM catalog c JOIN favorites f ON "
-                "f.item_id=c.id WHERE f.user_id=?",
-                (user_id,),
-            ).fetchall()
-            ids = {row[0] for row in rows}
-            if not starred_only:
-                ids.update(
-                    row[0]
-                    for row in connection.execute(
-                        "SELECT DISTINCT song_id FROM retained_tracks "
-                        "WHERE user_id=?",
-                        (user_id,),
-                    )
+            if starred_only:
+                query = "SELECT item_id FROM favorites WHERE user_id=?"
+            else:
+                # Saved songs define the library; metadata-only bookmarks
+                # remain available through Favorites, not the library index.
+                query = (
+                    "SELECT DISTINCT song_id FROM retained_tracks "
+                    "WHERE user_id=?"
                 )
-
-        return ids
+            return {row[0] for row in connection.execute(query, (user_id,))}

@@ -155,12 +155,7 @@ def test_artist_heart_is_metadata_only_and_xml_starred(saved_service):
     assert element.attrib["id"] == artist and element.attrib[
         "starred"
     ].endswith("Z")
-    assert (
-        body(get(saved_service, "getArtists"))["artists"]["index"][0][
-            "artist"
-        ][0]["id"]
-        == artist
-    )
+    assert body(get(saved_service, "getArtists"))["artists"]["index"] == []
 
 
 def test_saved_library_search_paging_browsing_and_no_provider_calls(
@@ -216,6 +211,151 @@ def test_saved_library_search_paging_browsing_and_no_provider_calls(
     assert body(get(saved_service, "search3", query="", apiKey=keys["alice"]))[
         "searchResult3"
     ] == {"artist": [], "album": [], "song": []}
+    assert len(provider.calls) == calls
+
+
+def test_saved_indexes_persist_and_xml_summaries_exclude_detail_pages(
+    saved_service,
+):
+    _, app, provider, _ = saved_service
+    result = search(saved_service)
+    song, album, artist = (result[k][0] for k in ("song", "album", "artist"))
+    get(saved_service, "star", id=song["id"])
+    # Populate full cached pages before enumerating the library.
+    get(saved_service, "getArtist", id=artist["id"])
+    get(saved_service, "getAlbum", id=album["id"])
+    calls = len(provider.calls)
+    reopened = make_library(
+        app.state.services.accounts, app.state.services.catalog, "aac"
+    )
+    saved = reopened.collection(user_id(saved_service))
+    assert [s["id"] for s in saved["song"]] == [song["id"]]
+    assert saved["album"][0]["songCount"] == 1
+    assert saved["album"][0]["duration"] == song["duration"]
+    assert saved["artist"][0]["albumCount"] == 1
+    assert "album" not in saved["artist"][0]
+    assert "song" not in saved["album"][0]
+    root = fromstring(get(saved_service, "getArtists", f="xml").content)
+    element = root.find("{*}artists/{*}index/{*}artist")
+    assert element.attrib["id"] == artist["id"]
+    assert element.attrib["albumCount"] == "1"
+    assert not list(element)
+    assert len(provider.calls) == calls
+
+
+@pytest.mark.parametrize("source", ["song", "album", "playlist"])
+def test_library_indexes_follow_saved_songs_and_keep_provider_details(
+    saved_service, source
+):
+    _, app, provider, keys = saved_service
+    result = search(saved_service)
+    song, album, artist = (result[k][0] for k in ("song", "album", "artist"))
+    user = app.state.services.accounts.user("admin")
+    # An artist bookmark survives after the last saved song is removed.
+    get(saved_service, "star", artistId=artist["id"])
+    playlist_id = None
+    if source == "playlist":
+        playlist_id = body(
+            get(
+                saved_service,
+                "createPlaylist",
+                name="Saved songs",
+                songId=[song["id"], song["id"]],
+            )
+        )["playlist"]["id"]
+        assert app.state.services.library.collection(user["id"])["song"] == []
+        run(
+            saved_service,
+            app.state.services.playlists.keep,
+            user,
+            playlist_id,
+            True,
+        )
+    else:
+        field = "albumId" if source == "album" else "id"
+        item_id = album["id"] if source == "album" else song["id"]
+        get(saved_service, "star", **{field: item_id})
+
+    calls = len(provider.calls)
+    provider.fail = True
+    # Indexes need only persisted membership, even before downloads complete
+    # or while the provider is unavailable. Other users see no membership.
+    for endpoint, key in (
+        ("getArtists", "artists"),
+        ("getIndexes", "indexes"),
+    ):
+        groups = body(get(saved_service, endpoint))[key]["index"]
+        assert [a["id"] for g in groups for a in g["artist"]] == [artist["id"]]
+        assert groups[0]["artist"][0]["albumCount"] == 1
+        assert (
+            body(get(saved_service, endpoint, apiKey=keys["alice"]))[key][
+                "index"
+            ]
+            == []
+        )
+    for endpoint, key in (
+        ("getAlbumList", "albumList"),
+        ("getAlbumList2", "albumList2"),
+    ):
+        albums = body(get(saved_service, endpoint, type="alphabeticalByName"))[
+            key
+        ]["album"]
+        assert [a["id"] for a in albums] == [album["id"]]
+        assert albums[0]["songCount"] == (2 if source == "album" else 1)
+    assert len(provider.calls) == calls
+
+    provider.fail = False
+    # Detail reads still show the provider's full album, including unsaved
+    # tracks. Hydrating these pages must not expand library membership.
+    detail = body(get(saved_service, "getAlbum", id=album["id"]))["album"]
+    assert len(detail["song"]) == 2
+    assert (
+        body(get(saved_service, "getArtist", id=artist["id"]))["artist"][
+            "album"
+        ][0]["id"]
+        == album["id"]
+    )
+    if source == "playlist":
+        run(
+            saved_service,
+            app.state.services.playlists.keep,
+            user,
+            playlist_id,
+            False,
+        )
+    else:
+        get(saved_service, "unstar", **{field: item_id})
+    assert app.state.services.library.collection(user["id"]) == {
+        "artist": [],
+        "album": [],
+        "song": [],
+    }
+    assert (
+        body(get(saved_service, "getStarred2"))["starred2"]["artist"][0]["id"]
+        == artist["id"]
+    )
+
+
+def test_empty_album_bookmark_is_not_library_membership(saved_service):
+    _, app, provider, _ = saved_service
+    album = app.state.services.catalog.put(
+        "album",
+        "MPRE_empty",
+        {"name": "Empty", "song": [], "songCount": 0},
+        complete=True,
+    )
+    get(saved_service, "star", albumId=album["id"])
+    calls = len(provider.calls)
+    assert (
+        body(get(saved_service, "getStarred2"))["starred2"]["album"][0]["id"]
+        == album["id"]
+    )
+    assert (
+        body(get(saved_service, "getAlbumList2", type="alphabeticalByName"))[
+            "albumList2"
+        ]["album"]
+        == []
+    )
     assert len(provider.calls) == calls
 
 
