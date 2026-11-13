@@ -537,7 +537,7 @@ def test_v2_migration_preserves_catalog_accounts_and_credentials(tmp_path):
     assert migrated.client_user({"apiKey": secret})["username"] == "admin"
     assert make_catalog(migrated).read(song["id"]) == catalog.read(song["id"])
     with migrated.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
         assert (
             connection.execute("SELECT count(*) FROM favorites").fetchone()[0]
             == 0

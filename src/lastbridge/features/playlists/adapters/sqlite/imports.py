@@ -143,17 +143,17 @@ class ImportRepository:
                 )
                 return existing["id"]
             connection.execute(
-                "UPDATE playlist_imports SET ready=1,updated=?,"
+                "UPDATE playlist_imports SET ready=1,updated=?,last_checked=?,"
                 "next_attempt=? WHERE id=?",
-                (now, now + DAY, item_id),
+                (now, now, now + DAY * row["refresh_days"], item_id),
             )
         return item_id
 
     @staticmethod
     def fresh(progress):
-        # Reuse recent exact lookup results across refreshes. Source rows and
-        # the ordered output are always rebuilt from the latest playlist.
+        # Keep the last successful source snapshot for unchanged refreshes.
         return {
+            "snapshot": progress.get("snapshot"),
             "matches": progress.get("matches", {}),
             "decisions": progress.get("decisions", {}),
             "originals": progress.get("originals", {}),
@@ -290,6 +290,8 @@ class ImportRepository:
             if row["state"] in ("queued", "running"):
                 return
             progress = self.fresh(json.loads(row["progress"]))
+            # Explicit refresh retries matching for an unchanged source too.
+            progress.pop("snapshot", None)
             connection.execute(
                 "UPDATE playlist_imports SET state='queued',phase='fetch',"
                 "progress=?,processed=0,total=0,matched=0,attempts=0,"
@@ -424,17 +426,42 @@ class ImportRepository:
             if progress is None:
                 return False
             entries = progress["entries"]
+            current = connection.execute(
+                "SELECT * FROM playlist_imports WHERE id=?", (job["id"],)
+            ).fetchone()
+            previous_title = current["custom_title"] or current["title"]
+            next_title = current["custom_title"] or snapshot.title
+            content_changed = (
+                not current["ready"]
+                or previous_title != next_title
+                or normalized_entries(json.loads(current["entries"]))
+                != entries
+            )
+            if "tracks" in progress:
+                progress["snapshot"] = {
+                    "tracks": progress["tracks"],
+                    "entries": [
+                        progress.get("originals", {}).get(
+                            entry.get("source_key"), entry
+                        )
+                        | {"position": entry["position"]}
+                        for entry in entries
+                    ],
+                    "resolver_version": progress.get("resolver_version"),
+                }
             changed = connection.execute(
                 "UPDATE playlist_imports SET title=?,entries=?,updated=?,"
-                "next_attempt=?,token=NULL,error=NULL,state='complete',"
+                "last_checked=?,next_attempt=?,token=NULL,error=NULL,"
+                "state='complete',"
                 "phase='complete',attempts=0,processed=?,total=?,matched=?,"
                 "progress=? "
                 "WHERE id=? AND token=? AND state='running'",
                 (
                     snapshot.title,
                     json.dumps(entries),
+                    now if content_changed else current["updated"],
                     now,
-                    now + DAY,
+                    now + DAY * current["refresh_days"],
                     len(entries),
                     len(entries),
                     sum(bool(e.get("song_id")) for e in entries),
@@ -541,6 +568,17 @@ class ImportRepository:
                 "UPDATE playlist_imports SET custom_title=?,updated=? "
                 "WHERE id=? AND shared=1 AND ready=1",
                 (name, time.time(), item_id),
+            ).rowcount
+            if not changed:
+                raise CatalogError(70, "Shared chart not found")
+
+    def schedule_shared(self, item_id, days):
+        with self.database.transaction() as connection:
+            changed = connection.execute(
+                "UPDATE playlist_imports SET refresh_days=?,next_attempt="
+                "CASE WHEN state='complete' THEN last_checked+? "
+                "ELSE next_attempt END WHERE id=? AND shared=1 AND ready=1",
+                (days, days * DAY, item_id),
             ).rowcount
             if not changed:
                 raise CatalogError(70, "Shared chart not found")

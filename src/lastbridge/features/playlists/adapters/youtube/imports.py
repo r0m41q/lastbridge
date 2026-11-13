@@ -66,7 +66,7 @@ class PlaylistProvider:
             "isAvailable",
             "isExplicit",
         }
-        return {
+        result = {
             "title": title,
             "tracks": [
                 self.public_row(row, fields) if isinstance(row, dict) else None
@@ -84,6 +84,15 @@ class PlaylistProvider:
                 in {identity(row) for row in tracks if isinstance(row, dict)}
             },
         }
+
+        snapshot = (previous or {}).get("snapshot")
+        if (
+            snapshot
+            and snapshot.get("resolver_version") == VERSION
+            and snapshot.get("tracks") == result["tracks"]
+        ):
+            result["entries"] = snapshot["entries"]
+        return result
 
     @staticmethod
     def public_row(row, fields):
@@ -295,7 +304,7 @@ class PlaylistProvider:
         tasks = [
             asyncio.create_task(resolve(row, i + 1))
             for i, row in enumerate(
-                result["tracks"][start: start + BATCH_SIZE], start
+                result["tracks"][start : start + BATCH_SIZE], start
             )
         ]
         try:

@@ -77,7 +77,7 @@ def test_automatic_enrichment_does_not_rewrite_audio_and_survives_restart(
         accounts = make_accounts(tmp_path / "data")
         with accounts.repository.database.connection() as connection:
             assert (
-                connection.execute("PRAGMA user_version").fetchone()[0] == 23
+                connection.execute("PRAGMA user_version").fetchone()[0] == 24
             )
             assert (
                 connection.execute(

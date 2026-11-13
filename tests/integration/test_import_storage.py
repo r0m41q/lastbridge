@@ -40,7 +40,7 @@ def test_schema_nine_upgrade_and_backup_restore_preserve_existing_state(
         }
     migrated = make_accounts(directory)
     with migrated.repository.database.connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
         assert (
             connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         )
@@ -70,3 +70,40 @@ def test_schema_nine_upgrade_and_backup_restore_preserve_existing_state(
     )
     assert restored.client_user({"apiKey": service[3]["admin"]})
     assert (backup / "credentials.key").read_bytes() == key
+
+
+def test_schema_23_chart_schedule_upgrade_and_restart(imported_service):
+    from support.build_accounts import make_accounts
+
+    from lastbridge.features.playlists.adapters.sqlite.imports import (
+        ImportRepository,
+    )
+
+    service, imports, _, _ = imported_service
+    chart = accept(imported_service, shared=True)
+    owner = user(service)
+    before = imports.get(owner, chart)
+    database = service[1].state.services.database
+    with database.transaction() as connection:
+        connection.execute(
+            "ALTER TABLE playlist_imports DROP COLUMN refresh_days"
+        )
+        connection.execute(
+            "ALTER TABLE playlist_imports DROP COLUMN last_checked"
+        )
+        connection.execute("PRAGMA user_version=23")
+    migrated = make_accounts(database.path.parent)
+    repository = ImportRepository(migrated.repository.database)
+    after = repository.get(owner, chart)
+    assert after["entries"] == before["entries"]
+    assert after["updated"] == before["updated"]
+    assert after["next_attempt"] == before["next_attempt"]
+    assert after["last_checked"] == before["updated"]
+    assert after["refresh_days"] == 1
+    repository.schedule_shared(chart, 7)
+    restarted = make_accounts(database.path.parent)
+    restored = ImportRepository(restarted.repository.database).get(
+        owner, chart
+    )
+    assert restored["refresh_days"] == 7
+    assert restored["next_attempt"] == after["last_checked"] + 7 * 86400

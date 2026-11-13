@@ -29,6 +29,8 @@ class RadioStations(Protocol):
 
 
 class ImportQueue(Protocol):
+    def schedule_shared(self, user: dict, item_id: str, days: str): ...
+
     def queue(
         self, user: dict, offset: int = 0, limit: int = 50
     ) -> list[dict]: ...

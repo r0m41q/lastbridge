@@ -118,6 +118,20 @@ class Imports:
         name = label(name, "name", 200, empty=True).strip()
         self.repository.rename_shared(item_id, name or None)
 
+    def schedule_shared(self, user, item_id, days):
+        if not user["admin"]:
+            raise CatalogError(50, "Administrator access required")
+        if (
+            not isinstance(days, str)
+            or len(days) > 5
+            or not days.isascii()
+            or not days.isdecimal()
+            or not 1 <= int(days) <= 36500
+        ):
+            raise CatalogError(10, "Refresh interval must be 1–36500 days")
+        self.repository.schedule_shared(item_id, int(days))
+        self.wake.set()
+
     def confirm(self, user, item_id):
         return self.repository.confirm(user, item_id)
 

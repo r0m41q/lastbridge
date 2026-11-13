@@ -212,3 +212,41 @@ def test_unlinked_admin_can_rename_shared_chart(imported_service):
     )
     assert response.status_code == 200
     assert imports.get(user(service), item_id)["title"] == "Chart <&>"
+
+
+def test_shared_chart_interval_form_permissions_and_validation(
+    imported_service,
+):
+    from support.imports import accept
+
+    service, imports, _, _ = imported_service
+    chart = accept(imported_service, shared=True)
+    private = accept(imported_service)
+    client = service[0]
+    token = browser(service)
+    path = f"/admin/charts/{chart}/schedule"
+    assert 'name="days" min="1"' in client.get("/admin").text
+    for data, headers in (
+        ({"days": "7"}, {}),
+        ({"csrf": token, "days": "7"}, {"origin": "https://foreign.test"}),
+    ):
+        assert client.post(path, data=data, headers=headers).status_code == 403
+    response = client.post(path, data={"csrf": token, "days": "7"})
+    assert response.status_code == 200
+    assert 'value="7"' in response.text
+    assert imports.get(user(service), chart)["refresh_days"] == 7
+    for days in ("0", "-1", "1.5", "x", "9" * 5000):
+        response = client.post(path, data={"csrf": token, "days": days})
+        assert response.status_code == (413 if len(days) == 5000 else 400)
+    assert imports.get(user(service), chart)["refresh_days"] == 7
+    assert (
+        client.post(
+            f"/admin/charts/{private}/schedule",
+            data={"csrf": token, "days": "3"},
+        ).status_code
+        == 404
+    )
+    token = browser(service, "alice")
+    assert (
+        client.post(path, data={"csrf": token, "days": "3"}).status_code == 403
+    )

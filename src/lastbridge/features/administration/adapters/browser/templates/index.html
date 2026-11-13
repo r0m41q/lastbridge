@@ -109,6 +109,15 @@
         <p>Leave blank to use the YouTube playlist name.</p>
         <button type="submit">Save name</button>
       </form>
+      <form method="post" action="/admin/charts/{{ chart.id }}/schedule">
+        {{ csrf(user.csrf) }}
+        <label>Refresh every (days)
+          <input type="number" name="days" min="1" max="36500" required
+                 value="{{ chart.refresh_days }}">
+        </label>
+        <p>Counted from the last successful check. Minimum 1 day.</p>
+        <button type="submit">Save interval</button>
+      </form>
       {% if chart.error and not chart.running %}<div class="actions">{{ action('/admin/charts/' ~ chart.id ~ '/retry', user.csrf, 'Retry refresh') }}</div>{% endif %}
     </div>{% else %}<p>No shared charts.</p>{% endfor %}
   </section>

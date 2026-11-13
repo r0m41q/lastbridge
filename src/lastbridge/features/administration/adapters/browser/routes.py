@@ -168,6 +168,19 @@ async def rename_chart(request: Request, item_id: str):
     return RedirectResponse("/admin", status_code=303)
 
 
+@router.post("/admin/charts/{item_id}/schedule")
+async def schedule_chart(request: Request, item_id: str):
+    user, values = await protected_form(request)
+    administrator(user)
+    try:
+        services(request).administration.import_queue.schedule_shared(
+            user, item_id, values.get("days", "")
+        )
+    except (CatalogError, StorageError) as error:
+        return action_failure(user, error)
+    return RedirectResponse("/admin", status_code=303)
+
+
 @router.get("/admin/import-queue")
 async def import_queue(
     request: Request, offset: int = Query(0, ge=0, le=1000000)
