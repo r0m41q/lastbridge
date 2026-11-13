@@ -6,6 +6,8 @@ from support.catalog import body, get, search
 from support.imports import accept, browser, user
 from support.library import run
 
+from lastbridge.features.playlists.domain.imports import DAY
+
 
 @pytest.mark.parametrize("name,status", [(None, 303), ("alice", 403)])
 def test_dashboard_requires_administrator(service, name, status):
@@ -146,6 +148,7 @@ def test_normal_user_cannot_operate_admin_controls(service, action):
         "/admin/stations/example/save",
         "/admin/stations/example/delete",
         "/admin/charts/example/rename",
+        "/admin/charts/example/schedule",
     ],
 )
 def test_admin_actions_require_csrf_and_same_origin(service, path):
@@ -288,6 +291,42 @@ def test_shared_chart_retry_is_queued_once_without_touching_private_imports(
         ).status_code
         == 403
     )
+
+
+def test_shared_chart_interval_is_visible_and_saved_in_admin(imported_service):
+    service, imports, _, calls = imported_service
+    shared = accept(imported_service, shared=True)
+    private = accept(imported_service)
+    token = browser(service)
+    client = service[0]
+    path = f"/admin/charts/{shared}/schedule"
+    page = client.get("/admin")
+    assert page.status_code == 200
+    assert f'action="{path}"' in page.text
+    assert f"/admin/charts/{private}/schedule" not in page.text
+    assert "Refresh every (days)" in page.text
+    assert 'name="days" min="1"' in page.text
+    assert "Save interval" in page.text
+    before = imports.get(user(service), shared)
+    fetched = len(calls)
+    response = client.post(path, data={"csrf": token, "days": "7"})
+    assert response.status_code == 200
+    assert response.url.path == "/admin"
+    assert 'value="7"' in response.text
+    after = imports.get(user(service), shared)
+    assert after["refresh_days"] == 7
+    assert after["next_attempt"] == before["last_checked"] + 7 * DAY
+    assert after["updated"] == before["updated"]
+    assert len(calls) == fetched
+    assert (
+        client.post(path, data={"csrf": token, "days": "0"}).status_code == 400
+    )
+    assert imports.get(user(service), shared)["refresh_days"] == 7
+    token = browser(service, "alice")
+    assert (
+        client.post(path, data={"csrf": token, "days": "2"}).status_code == 403
+    )
+    assert imports.get(user(service), shared)["refresh_days"] == 7
 
 
 def test_low_disk_and_transfer_reservations_are_visible(service, monkeypatch):

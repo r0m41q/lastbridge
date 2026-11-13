@@ -46,6 +46,18 @@ def lastfm_source(source):
     return source.startswith("lastfm:")
 
 
+def refresh_days(value):
+    if (
+        not isinstance(value, str)
+        or len(value) > 5
+        or not value.isascii()
+        or not value.isdecimal()
+        or not 1 <= int(value) <= 36500
+    ):
+        raise CatalogError(10, "Refresh interval must be 1–36500 days")
+    return int(value)
+
+
 def playlist_source(value, lastfm_name=None):
     if isinstance(value, str) and len(value) <= 2048:
         value = value.strip()

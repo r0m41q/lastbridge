@@ -608,6 +608,18 @@ class ImportRepository:
             if not changed:
                 raise CatalogError(70, "Shared chart not found")
 
+    def schedule_private(self, user_id, item_id, days):
+        with self.database.transaction() as connection:
+            changed = connection.execute(
+                "UPDATE playlist_imports SET refresh_days=?,next_attempt="
+                "CASE WHEN state='complete' THEN last_checked+? "
+                "ELSE next_attempt END WHERE id=? AND owner_id=? "
+                "AND shared=0 AND ready=1 AND source LIKE 'lastfm:%'",
+                (days, days * DAY, item_id, user_id),
+            ).rowcount
+            if not changed:
+                raise CatalogError(70, "Private Last.fm import not found")
+
     def recover(self):
         with self.database.transaction() as connection:
             connection.execute(

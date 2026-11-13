@@ -43,7 +43,7 @@ Administrators can add other users from **Administration**.
 
 Like a song to save it and sync the like to Last.fm. Choose **Keep downloaded** on a playlist to save its audio on the server too. Normal playlists don't retain audio. Use **Choose recording** in Saved library to replace a wrong or unavailable track.
 
-Use **Playlists** in the web UI to import a public YouTube playlist or one of your Last.fm playlists by URL or numeric ID. Last.fm imports use your linked account, stay private and refresh daily. Review unmatched tracks before adding it. Administrators can share YouTube charts with everyone and manage import jobs and internet radio stations from **Administration**.
+Use **Playlists** in the web UI to import a public YouTube playlist or one of your Last.fm playlists by URL or numeric ID. Last.fm imports use your linked account and stay private. Review unmatched tracks before adding it. Set **Refresh every (days)** on the import report to change its automatic refresh interval (default and minimum: 1 day). Administrators can share YouTube charts with everyone and set each chart's interval under **Administration → Shared YouTube charts → Refresh every (days)**. Manage import jobs and internet radio stations from **Administration**.
 
 Audio providers, format, and cache limits are also in **Administration**. The first play of an uncached song may take a few seconds to start.
 

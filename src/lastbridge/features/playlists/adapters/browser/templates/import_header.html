@@ -1,4 +1,4 @@
-{% from 'components/forms.html' import action %}
+{% from 'components/forms.html' import action, csrf %}
 {% from 'components/import_jobs.html' import controls, progress %}
 <section class="panel">
       <h2>{{ item.title }}</h2>
@@ -28,5 +28,15 @@
       </div>
       {% if not item.ready %}<p>Confirm the completed preview to publish it. The completed preview expires after one hour. Importing does not download audio.</p>{% endif %}
       {% if item.ready %}<p>Last updated: {{ updated }}{% if (item.shared or lastfm) and item.state == 'complete' %} · Next refresh: {{ next_refresh }}{% endif %}</p><p>{{ 'Refreshes every ' ~ item.refresh_days ~ ' day(s) after a successful refresh.' if item.shared or lastfm else 'Use Refresh now to update this snapshot.' }} Paused and cancelled jobs wait for your next action.</p>{% endif %}
+      {% if item.ready and (item.shared or lastfm) and (not item.shared or user.admin) %}
+        <form method="post" action="/playlist-imports/{{ item.id }}/schedule">
+          {{ csrf(user.csrf) }}
+          <label>Refresh every (days)
+            <input type="number" name="days" min="1" max="36500" required value="{{ item.refresh_days }}">
+          </label>
+          <p>Counted from the last successful check. Minimum 1 day.</p>
+          <button type="submit">Save interval</button>
+        </form>
+      {% endif %}
       {% if item.state in ('queued', 'running') %}<p>Progress updates every five seconds. You can leave while the job runs.</p>{% endif %}
     </section>

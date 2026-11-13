@@ -7,7 +7,7 @@
   <div class="dashboard">
     <section class="panel">
       <h2>Import a playlist</h2>
-      <p>Paste a YouTube or Last.fm playlist URL, or a Last.fm playlist ID such as <em>12354876</em>. Last.fm imports use your linked account, stay private and refresh daily. Only playlists readable under your Last.fm username can be imported.</p>
+      <p>Paste a YouTube or Last.fm playlist URL, or a Last.fm playlist ID such as <em>12354876</em>. Last.fm imports use your linked account and stay private. Set their refresh interval in days on the import report; default and minimum: 1 day. Only playlists readable under your Last.fm username can be imported.</p>
       <p>To add a shared YouTube chart, paste a public playlist URL, choose <em>Everyone</em>, click <em>Preview</em>, then confirm <em>Add shared chart</em>. Shared charts are visible to every user and refresh daily by default. Administrators can change each chart’s interval in Administration.</p>
       <form method="post" action="/playlist-imports/preview">
         {{ csrf(user.csrf) }}

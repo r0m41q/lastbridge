@@ -116,6 +116,9 @@ async def change(request: Request, item_id: str, action: str):
         elif action == "refresh":
             await imports.refresh(user, item_id)
             target = "/playlist-imports/" + item_id
+        elif action == "schedule":
+            imports.schedule(user, item_id, values.get("days", ""))
+            target = "/playlist-imports/" + item_id
         elif action in ("pause", "resume", "cancel", "retry"):
             imports.control(user, item_id, action)
             target = "/playlist-imports/" + item_id

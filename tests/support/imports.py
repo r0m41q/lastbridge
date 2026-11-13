@@ -1,5 +1,6 @@
 import copy
 
+import httpx
 import pytest
 
 from lastbridge.shared.errors import CatalogError
@@ -65,6 +66,57 @@ def due(service, item_id):
             "UPDATE playlist_imports SET next_attempt=0 WHERE id=?",
             (item_id,),
         )
+
+
+@pytest.fixture
+def lastfm_imported_service(imported_service):
+    service, imports, _, _ = imported_service
+    with service[1].state.services.database.transaction() as connection:
+        connection.execute(
+            "UPDATE users SET lastfm_name='lastfm-' || username "
+            "WHERE username IN ('admin','alice')"
+        )
+    state = {
+        "rows": [
+            {
+                "name": SONG["title"],
+                "artists": [{"name": SONG["artists"][0]["name"]}],
+                "duration": SONG["duration_seconds"],
+            }
+        ],
+        "fail": False,
+    }
+    calls = []
+
+    def respond(request):
+        calls.append(str(request.url))
+        if state["fail"]:
+            return httpx.Response(503)
+        return httpx.Response(
+            200,
+            json={
+                "playlist": copy.deepcopy(state["rows"])
+                if request.url.params["page"] == "1"
+                else []
+            },
+        )
+
+    provider = imports.lastfm_provider
+    original = provider.client
+    provider.client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    try:
+        yield service, imports, state, calls
+    finally:
+        run(service, provider.client.aclose)
+        provider.client = original
+
+
+def accept_lastfm(bundle, name="alice"):
+    service, imports, _, _ = bundle
+    owner = user(service, name)
+    item_id = run(service, imports.preview, owner, "12354876")
+    run(service, imports.refresh_one)
+    return imports.confirm(owner, item_id)
 
 
 class ChartLookup:

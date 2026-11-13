@@ -15,6 +15,7 @@ from lastbridge.features.playlists.domain.imports import (
     Snapshot,
     lastfm_source,
     playlist_source,
+    refresh_days,
 )
 from lastbridge.features.playlists.domain.rules import label
 from lastbridge.shared.errors import CatalogError, StorageError
@@ -134,15 +135,21 @@ class Imports:
     def schedule_shared(self, user, item_id, days):
         if not user["admin"]:
             raise CatalogError(50, "Administrator access required")
-        if (
-            not isinstance(days, str)
-            or len(days) > 5
-            or not days.isascii()
-            or not days.isdecimal()
-            or not 1 <= int(days) <= 36500
-        ):
-            raise CatalogError(10, "Refresh interval must be 1–36500 days")
-        self.repository.schedule_shared(item_id, int(days))
+        self.repository.schedule_shared(item_id, refresh_days(days))
+        self.wake.set()
+
+    def schedule(self, user, item_id, days):
+        row = self.writable(user, item_id)
+        if not row["ready"]:
+            raise CatalogError(10, "Confirm the preview first")
+        if row["shared"]:
+            self.schedule_shared(user, item_id, days)
+            return
+        if not lastfm_source(row["source"]):
+            raise CatalogError(10, "This import refreshes manually")
+        self.repository.schedule_private(
+            user["id"], item_id, refresh_days(days)
+        )
         self.wake.set()
 
     def confirm(self, user, item_id):
