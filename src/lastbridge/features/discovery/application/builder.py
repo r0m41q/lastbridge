@@ -1,8 +1,10 @@
 import asyncio
 import json
+import logging
 import random
 import time
 
+from lastbridge.features.discovery.application.candidates import discover
 from lastbridge.features.discovery.application.ports import (
     CatalogAccess,
     MixStore,
@@ -16,6 +18,10 @@ from lastbridge.features.discovery.domain.policy import (
 )
 from lastbridge.shared.errors import CatalogError, ProviderError
 from lastbridge.shared.lastfm import LastfmRequestError
+
+logger = logging.getLogger(__name__)
+MATCH_TIMEOUT = 5
+RESOLUTION_BUDGET = 90
 
 
 class MixBuilder:
@@ -47,10 +53,17 @@ class MixBuilder:
                 if method in (
                     "track.getSimilar",
                     "artist.getTopTracks",
+                    "artist.getSimilar",
                 ) and failure.code in (6, 7):
                     # A missing seed does not invalidate a profile.
                     result = []
                 else:
+                    logger.warning(
+                        "Mix Last.fm read failed user_id=%s method=%s code=%s",
+                        user_id,
+                        method,
+                        failure.code,
+                    )
                     raise
             await asyncio.sleep(0.25)
             return result
@@ -77,26 +90,7 @@ class MixBuilder:
         rng = random.Random(f"{user_id}:{target}:{int(time.time() // DAY)}")
         seeds = list(familiar)
         rng.shuffle(seeds)
-        groups = []
-        for artist, title in seeds[:3]:
-            groups.append(
-                await read(
-                    "track.getSimilar",
-                    artist=artist,
-                    track=title,
-                    autocorrect="0",
-                )
-            )
-        if not seeds and artists:
-            for artist, _ in artists[:2]:
-                groups.append(await read("artist.getTopTracks", artist=artist))
-        if not seeds and not artists:
-            groups.append(await read("chart.getTopTracks"))
-        # Interleave seed results so the first seed cannot monopolize Discover.
-        discovery = unique(
-            [rows[i] for i in range(50) for rows in groups if i < len(rows)]
-        )
-        discovery = [r for r in discovery if key(r) not in known | removed]
+        discovery = await discover(read, seeds, artists, known | removed)
         comfort = unique(pairs(saved) + top + pairs(loved[:100]))
         rng.shuffle(comfort)
         candidates = {
@@ -117,8 +111,15 @@ class MixBuilder:
         seen = {kind: set() for kind in candidates}
         seen_ids = {kind: set() for kind in candidates}
         attempts, resolved = 0, {}
-        for i in range(60):
-            for kind, rows in candidates.items():
+        positions = dict.fromkeys(candidates, 0)
+        deadline = time.monotonic() + RESOLUTION_BUDGET
+        for _ in range(60):
+            # Discover needs new lookups; familiar mixes often use the cache.
+            # Give it two turns while retaining a single shared hard bound.
+            for kind in ("discover", "comfort", "discover", "again"):
+                rows = candidates[kind]
+                i = positions[kind]
+                positions[kind] += 1
                 if i >= len(rows) or len(results[kind]) >= 30:
                     continue
                 candidate = rows[i]
@@ -126,14 +127,18 @@ class MixBuilder:
                 if recording in removed:
                     continue
                 if recording not in cache:
-                    if attempts >= LOOKUPS:
+                    remaining = deadline - time.monotonic()
+                    if attempts >= LOOKUPS or remaining <= 0:
                         continue
                     attempts += 1
                     try:
-                        cache[recording] = await self.catalog.match_loved(
-                            *candidate
-                        )
-                    except ProviderError:
+                        async with asyncio.timeout(
+                            min(MATCH_TIMEOUT, remaining)
+                        ):
+                            cache[recording] = await self.catalog.match_loved(
+                                *candidate
+                            )
+                    except ProviderError, TimeoutError:
                         cache[recording] = (
                             None  # Ambiguous/unavailable are omitted.
                         )
@@ -158,6 +163,22 @@ class MixBuilder:
                 seen_ids[kind].add(song["id"])
                 results[kind].append(song["id"])
                 resolved[recording] = song["id"]
+        logger.info(
+            "Mix matching completed user_id=%s lookups=%s "
+            "comfort=%s discover=%s again=%s discover_candidates=%s",
+            user_id,
+            attempts,
+            len(results["comfort"]),
+            len(results["discover"]),
+            len(results["again"]),
+            len(discovery),
+        )
+        if not results["discover"]:
+            logger.warning(
+                "Discover empty user_id=%s reason=%s",
+                user_id,
+                "no_playable_matches" if discovery else "no_new_suggestions",
+            )
         # A provider returning only unresolvable metadata must not erase a
         # previously useful snapshot. Empty remote histories are valid results.
         old_snapshot = json.loads(job["snapshot"])

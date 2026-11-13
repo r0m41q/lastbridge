@@ -4,8 +4,8 @@ POLICIES = {
     "comfort": ("Comfort", "Familiar favorites and six-month top tracks."),
     "discover": (
         "Discover",
-        "Similar tracks outside your known listening sample; charts "
-        "for new profiles.",
+        "Similar tracks and artist-based suggestions outside your known "
+        "listening sample; charts for new profiles.",
     ),
     "again": (
         "Listen Again",

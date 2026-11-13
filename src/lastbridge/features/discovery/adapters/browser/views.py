@@ -2,7 +2,7 @@ from lastbridge.shared.dates import date
 
 DESCRIPTIONS = (
     ("comfort", "Favourites and top tracks."),
-    ("discover", "Last.fm similar-track recommendations."),
+    ("discover", "Last.fm track and artist recommendations."),
     ("again", "Recently played tracks."),
     ("loved", "Imported Last.fm loved tracks."),
 )

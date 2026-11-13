@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from lastbridge.features.discovery.application.builder import MixBuilder
 from lastbridge.features.discovery.application.lists import MixLists
@@ -12,6 +13,8 @@ from lastbridge.features.discovery.application.worker import run
 from lastbridge.features.discovery.domain.policy import DAY, DEADLINE
 from lastbridge.shared.errors import CatalogError, ProviderError
 from lastbridge.shared.lastfm import LastfmRequestError
+
+logger = logging.getLogger(__name__)
 
 
 class Mixes:
@@ -88,7 +91,19 @@ class Mixes:
         try:
             async with asyncio.timeout(DEADLINE):
                 profile, snapshot = await self.build(job)
-        except LastfmRequestError, CatalogError, ProviderError, TimeoutError:
+        except (
+            LastfmRequestError,
+            CatalogError,
+            ProviderError,
+            TimeoutError,
+        ) as failure:
+            logger.warning(
+                "Mix refresh failed user_id=%s error_type=%s code=%s; "
+                "previous playlists kept, retry in five minutes",
+                job["user_id"],
+                type(failure).__name__,
+                getattr(failure, "code", None),
+            )
             self.repository.failed(job)
             return True
         self.repository.publish(job, profile, snapshot, self.refresh_interval)

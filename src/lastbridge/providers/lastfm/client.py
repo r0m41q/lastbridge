@@ -193,6 +193,7 @@ class Lastfm:
             "user.getTopArtists": ("topartists", "artist"),
             "track.getSimilar": ("similartracks", "track"),
             "artist.getTopTracks": ("toptracks", "track"),
+            "artist.getSimilar": ("similarartists", "artist"),
             "chart.getTopTracks": ("tracks", "track"),
         }
         root, kind = roots[method]
